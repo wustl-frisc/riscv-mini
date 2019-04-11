@@ -30,7 +30,7 @@ class ALUIo(implicit p: Parameters) extends CoreBundle()(p) {
   val sum = Output(UInt(xlen.W))
 }
 
-import ALU._
+import mini.ALU._
 
 abstract class ALU(implicit val p: Parameters) extends Module with CoreParams {
   val io = IO(new ALUIo)

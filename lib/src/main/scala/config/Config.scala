@@ -83,3 +83,7 @@ private class MapParameters(map: Map[Any, Any]) extends Parameters {
     if (g.isDefined) Some(g.get.asInstanceOf[T]) else tail.find(pname, site)
   }
 }
+
+object Test extends App {
+  println("Hello world")
+}

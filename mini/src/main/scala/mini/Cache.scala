@@ -4,8 +4,8 @@ package mini
 
 import chisel3._
 import chisel3.util._
+import freechips.rocketchip.config.{Field, Parameters}
 import junctions._
-import freechips.rocketchip.config.{Parameters, Field}
 
 case object NWays extends Field[Int]
 case object NSets extends Field[Int]
@@ -148,7 +148,7 @@ class Cache(implicit val p: Parameters) extends Module with CacheParams {
 
   // Cache FSM
   val is_dirty = v(idx_reg) && d(idx_reg)
-  switch(state) {
+  switch (state) {
     is(s_IDLE) {
       when(io.cpu.req.valid) {
         state := Mux(io.cpu.req.bits.mask.orR, s_WRITE_CACHE, s_READ_CACHE)

@@ -3,11 +3,14 @@
 package mini
 
 import chisel3._
-import chisel3.util._
+import chisel3.aop.Aspect
 import chisel3.testers._
+import chisel3.util._
+import mini.Instructions.{EBREAK, ECALL, ERET, FENCEI}
+import mini._
+
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.reflect.ClassTag
-import scala.concurrent.{Future, Await, ExecutionContext}
-import Instructions._
 
 trait DatapathTest
 object BypassTest extends DatapathTest {
@@ -213,17 +216,18 @@ object TestParams {
 abstract class IntegrationTests[T <: BasicTester : ClassTag](
     tester: (Iterator[String], Long) => T,
     testType: TestType,
-    N: Int = 6) extends org.scalatest.FlatSpec {
+    N: Int = 6,
+    aspects: Seq[Aspect[_, _]] = Nil) extends org.scalatest.FlatSpec {
   val dutName = implicitly[ClassTag[T]].runtimeClass.getSimpleName
   behavior of dutName
-  import scala.concurrent.duration._
   import ExecutionContext.Implicits.global
+  import scala.concurrent.duration._
 
   val results = testType.tests sliding (N, N) map { subtests =>
     val subresults = subtests map { test =>
       val stream = getClass.getResourceAsStream(s"/$test.hex")
       val loadmem = io.Source.fromInputStream(stream).getLines
-      Future(test -> (TesterDriver execute (() => tester(loadmem, testType.maxcycles))))
+      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, aspects)))
     }
     Await.result(Future.sequence(subresults), Duration.Inf)
   }
