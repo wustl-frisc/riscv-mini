@@ -1,7 +1,7 @@
 package aoplib
 
 import chisel3.{Bool, Data}
-import chisel3.aop.Aspect
+import chisel3.aop.{AddStatements, Aspect}
 import chisel3.experimental.RawModule
 import firrtl.annotations.{Annotation, ReferenceTarget, Target}
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, IRToWorkingIR, LowForm, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, UNKNOWNGENDER, WRef, WSubField, WSubIndex}
@@ -13,9 +13,29 @@ import scala.reflect.runtime.universe.TypeTag
 
 
 
+//abstract class LoggingInfo(message: String, signals: Seq[Data], clock: chisel3.Clock, enable: Option[Bool] = None) extends AspectInfo {
 
-case class LoggingInfo(message: String, signals: Seq[Data], clock: chisel3.Clock, enable: Option[Bool] = None)
+
 //case class FirrtlLoggingInfo(enable: ReferenceTarget, signals: Seq[ReferenceTarget], clock: ReferenceTarget, message: String) {
+
+//abstract class LoggingAspect[T <: RawModule](implicit tag: TypeTag[T]) extends Aspect[T, LoggingInfo] {
+//
+//  def logSignals(info: LoggingInfo): Unit
+//
+//  override def collectAspectInfo(dut: T): Seq[LoggingInfo] = logSignals(dut)
+//
+//  override def resolveAspectInfo(aspectInfo: Seq[LoggingInfo]): AnnotationSeq = {
+//    val fLogSignals = aspectInfo.map(i => FirrtlLoggingInfo(i.message, i.signals.map(_.toTarget), i.clock.toTarget, i.enable.map(_.toTarget)))
+//    Seq(LoggingSignals(fLogSignals))
+//  }
+//
+//  override def transformClass: Class[_ <: Transform] = classOf[LoggingTransform]
+//}
+
+
+// FIRRTL STUFF BELOW
+
+
 case class FirrtlLoggingInfo(message: String, signals: Seq[ReferenceTarget], clock: ReferenceTarget, enable: Option[ReferenceTarget]) {
   private val circuits = getTargets.map(t => t.circuit).toSet
   private val modules = getTargets.map(t => t.module).toSet
@@ -28,19 +48,6 @@ case class FirrtlLoggingInfo(message: String, signals: Seq[ReferenceTarget], clo
   def getTargets: Seq[ReferenceTarget] = clock +: (signals ++ enable)
 }
 
-abstract class LoggingAspect[T <: RawModule](implicit tag: TypeTag[T]) extends Aspect[T, Seq[LoggingInfo]] {
-
-  def logSignals(dut: T): Seq[LoggingInfo]
-
-  override def collectAspectInfo(dut: T): Seq[LoggingInfo] = logSignals(dut)
-
-  override def resolveAspectInfo(aspectInfo: Seq[LoggingInfo]): AnnotationSeq = {
-    val fLogSignals = aspectInfo.map(i => FirrtlLoggingInfo(i.message, i.signals.map(_.toTarget), i.clock.toTarget, i.enable.map(_.toTarget)))
-    Seq(LoggingSignals(fLogSignals))
-  }
-
-  override def transformClass: Class[_ <: Transform] = classOf[LoggingTransform]
-}
 
 case class LoggingSignals(infos: Seq[FirrtlLoggingInfo]) extends Annotation with AnnotationHelpers {
   override def getTargets: Seq[ReferenceTarget] = infos.flatMap(i => i.getTargets)

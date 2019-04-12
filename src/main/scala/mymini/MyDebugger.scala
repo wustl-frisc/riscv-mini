@@ -1,5 +1,6 @@
 package mymini
 
+/*
 import aoplib.HistogramAspect
 import chisel3.Data
 import firrtl.annotations.ReferenceTarget
@@ -11,4 +12,4 @@ case object MyMiniHistogram extends HistogramAspect[mini.Tile] {
     Seq(named) ++ CSRHistogram.histogramSignals(dut.core.dpath.csr)
   }
 }
-
+*/

@@ -3,7 +3,7 @@
 package mini
 
 import chisel3._
-import chisel3.aop.Aspect
+import chisel3.aop.{Aspect, Concern}
 import chisel3.testers._
 import chisel3.util._
 import junctions._
@@ -140,8 +140,8 @@ class TileTester(
   }
 }
 
-abstract class TileTests(testType: TestType, aspects: Seq[Aspect[_, _]] = Nil) extends IntegrationTests(
-  (loadmem, maxcycles) => new TileTester(new Tile(p), loadmem, maxcycles), testType, 6, aspects)
+abstract class TileTests(testType: TestType, concerns: Seq[Concern[_, _]] = Nil) extends IntegrationTests(
+  (loadmem, maxcycles) => new TileTester(new Tile(p), loadmem, maxcycles), testType, 6, concerns)
 class TileSimpleTests extends TileTests(SimpleTests)
 class TileISATests extends TileTests(ISATests)
 class TileBmarkTests extends TileTests(BmarkTests)
