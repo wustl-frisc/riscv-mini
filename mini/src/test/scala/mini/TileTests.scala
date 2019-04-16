@@ -74,15 +74,23 @@ class TileTester(
   rpipe.bits  := NastiReadDataChannel(id, _mem(addr + off), off === len)
   rpipe.valid := state === sRead
 
+  val isDone = WireInit(false.B)
+  val setDone = WireInit(false.B)
+
   when(state =/= sInit) {
     cycle := cycle + 1.U
     assert(cycle < maxcycles.U)
     when(dut.io.host.tohost =/= 0.U) {
-      printf("cycles: %d\n", cycle)
-      assert((dut.io.host.tohost >> 1.U) === 0.U,
-        "* tohost: %d *\n", dut.io.host.tohost)
-      stop(); stop()
+      isDone := true.B
     }
+  }
+
+  setDone := isDone
+  when(setDone) {
+    printf("cycles: %d\n", cycle)
+    assert((dut.io.host.tohost >> 1.U) === 0.U,
+      "* tohost: %d *\n", dut.io.host.tohost)
+    stop(); stop()
   }
  
   val chunk = Wire(UInt(nastiXDataBits.W))

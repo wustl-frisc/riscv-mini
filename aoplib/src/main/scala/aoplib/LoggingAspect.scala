@@ -1,7 +1,6 @@
 package aoplib
 
 import chisel3.{Bool, Data}
-import chisel3.aop.{AddStatements, Aspect}
 import chisel3.experimental.RawModule
 import firrtl.annotations.{Annotation, ReferenceTarget, Target}
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, IRToWorkingIR, LowForm, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, UNKNOWNGENDER, WRef, WSubField, WSubIndex}
