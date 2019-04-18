@@ -14,8 +14,7 @@ import scala.reflect.runtime.universe.TypeTag
   * @tparam T Type of the design-under-test
   * @tparam R Type of Histogram Aspect
   */
-abstract class HistogramConcern[T <: RawModule, R <: HistogramAspect[T, _]](implicit tag: TypeTag[T]) extends Concern[T, R] with AdditionalTransforms {
+abstract class HistogramConcern[T <: RawModule, R <: HistogramAspect[T, _]](implicit tag: TypeTag[T]) extends Concern[T, R] {
   def aspects: Seq[R]
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[WiringTransform])
-  override def transformClass: Class[_ <: ConcernTransform] = classOf[InjectingTransform]
+  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[WiringTransform])
 }

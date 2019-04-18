@@ -7,7 +7,6 @@ import chisel3.experimental.{ChiselAnnotation, RawModule, annotate, dontTouch}
 import chisel3.util.experimental.BoringUtils
 import firrtl.annotations.Annotation
 import firrtl.AnnotationSeq
-
 import scala.reflect.runtime.universe.TypeTag
 
 /** Create histograms of signal values during execution, and print the bin values at the end of execution

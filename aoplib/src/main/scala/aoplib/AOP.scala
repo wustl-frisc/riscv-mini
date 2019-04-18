@@ -11,7 +11,7 @@ object AOP {
   def doStuff = println("Doing stuff")
 }
 
-trait AnnotationHelpers {
+object AnnotationHelpers {
   def renameOne(rt: ReferenceTarget, renames: RenameMap): ReferenceTarget = {
     renames.get(rt) match {
       case Some(s@Seq(x: ReferenceTarget)) => x

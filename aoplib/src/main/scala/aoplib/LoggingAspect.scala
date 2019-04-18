@@ -34,6 +34,7 @@ import scala.reflect.runtime.universe.TypeTag
 
 // FIRRTL STUFF BELOW
 
+/*
 
 case class FirrtlLoggingInfo(message: String, signals: Seq[ReferenceTarget], clock: ReferenceTarget, enable: Option[ReferenceTarget]) {
   private val circuits = getTargets.map(t => t.circuit).toSet
@@ -104,6 +105,7 @@ class LoggingTransform extends Transform with ResolvedAnnotationPaths {
     }
   }
 }
+*/
 
 /*
 object AspectModule {
