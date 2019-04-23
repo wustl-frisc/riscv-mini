@@ -2,28 +2,31 @@ package aoplib.histogram
 
 import chisel3._
 import chisel3.aop._
-import chisel3.aop.injecting.InjectingAspect
+import chisel3.aop.injecting.{InjectingAspect, InjectingTransform}
 import chisel3.experimental.{ChiselAnnotation, RawModule, annotate, dontTouch}
 import chisel3.util.experimental.BoringUtils
 import firrtl.annotations.Annotation
-import firrtl.AnnotationSeq
+import firrtl.passes.wiring.WiringTransform
+import firrtl.{AnnotationSeq, Transform}
+
 import scala.reflect.runtime.universe.TypeTag
 
 /** Create histograms of signal values during execution, and print the bin values at the end of execution
   *
-  * @param selectRoot Given top-level module, pick the module to apply the aspect (root module)
+  * @param selectRoots Given top-level module, pick the instances of a module to apply the aspect (root module)
   * @param selectSignals Pick signals from a module to histogram
   * @param selectDesignDone From the top-level design, select a signal which, when true, the design has finished execution
   * @param selectSimDone From the top-level design, select an assignable signal which, when true, the simulation has finished execution
-  * @param tag Needed to prevent type-erasure of the top-level module type
+  * @param dutTag Needed to prevent type-erasure of the top-level module type
+  * @param mTag Needed to prevent type-erasure of the selected modules' type
   * @tparam DUT Type of top-level module
   * @tparam M Type of root module (join point)
   */
-case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoot: DUT => M,
+case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT => Seq[M],
                                                              selectSignals: M => Seq[HistogramSignal],
                                                              selectDesignDone: DUT => Bool,
                                                              selectSimDone: DUT => Bool
-                                                            )(implicit tag: TypeTag[DUT]) extends Aspect[DUT, M](selectRoot) {
+                                                            )(implicit dutTag: TypeTag[DUT], mTag: TypeTag[M]) extends Aspect[DUT, M](selectRoots) {
 
   private final def markDone(d: Data): Unit = {
     annotate(new ChiselAnnotation {
@@ -40,7 +43,7 @@ case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoot: DUT => 
   final def toAnnotation(dut: DUT): AnnotationSeq = {
     // Create annotation to insert histogram into module
     val ia = InjectingAspect[DUT, M](
-      selectRoot,
+      selectRoots,
       { m: M =>
         val signals = selectSignals(m)
         val done = Wire(Bool())
@@ -79,8 +82,10 @@ case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoot: DUT => 
     ).toAnnotation(dut)
 
     // Create annotation to insert histogram execution after design execution
-    val ia2 = InjectingAspect({dut: DUT => dut}, { dut: DUT => setDone(selectSimDone(dut)) }).toAnnotation(dut)
+    val ia2 = InjectingAspect({dut: DUT => Seq(dut)}, { dut: DUT => setDone(selectSimDone(dut)) }).toAnnotation(dut)
 
     ia ++ ia2
   }
+
+  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[WiringTransform])
 }

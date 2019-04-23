@@ -1,9 +1,9 @@
 package myminiTests
 
-import aoplib.histogram.{HistogramAspect, HistogramConcern, HistogramSignal}
+import aoplib.histogram.{HistogramAspect, HistogramSignal}
 import chisel3._
 import chisel3.aop._
-import chisel3.aop.injecting.{InjectingAspect, InjectingConcern}
+import chisel3.aop.injecting.InjectingAspect
 import chisel3.experimental.dontTouch
 import freechips.rocketchip.config.Parameters
 import mini._
@@ -14,7 +14,7 @@ object TileTesterALUAspects {
 
   // We can reuse functions between Aspects, such as this one
   // This is the primary way to reuse aspect code (via functions, not the aspects themselves)
-  def selectALU(tester: TileTester): ALU = tester.dut.asInstanceOf[mini.Tile].core.dpath.alu
+  def selectALU(tester: TileTester): Seq[ALU] = Seq(tester.dut.asInstanceOf[mini.Tile].core.dpath.alu)
 
 
   // We can create an aspect that injects additional ALU annotations
@@ -90,22 +90,22 @@ object TileTesterALUAspects {
   )
 }
 
-case object MyLogger extends InjectingConcern[TileTester, InjectingAspect[TileTester, _]] {
+case object MyLogger {
   def aspects = Seq( TileTesterALUAspects.libraried ) // Could add more here, even declare new ones
 }
 
-case object MyHistogrammer extends HistogramConcern[TileTester, HistogramAspect[TileTester, _]] {
+case object MyHistogrammer {
   def aspects = Seq(TileTesterALUAspects.aluHistogram)
 }
 
 
-class TileSimpleTests extends TileTests(SimpleTests, concerns = Nil)
+class TileSimpleTests extends TileTests(SimpleTests, aspects = Nil)
 
-class TileSimpleTestsWithLogger extends TileTests(SimpleTests, concerns = Seq[Concern[TileTester, _]](MyLogger))
+class TileSimpleTestsWithLogger extends TileTests(SimpleTests, aspects = Seq[Aspect[TileTester, _]](TileTesterALUAspects.libraried))
 
-class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, concerns = Seq(MyHistogrammer))
+class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, aspects = MyHistogrammer.aspects)
 
-class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, concerns = Seq[Concern[TileTester, _]](MyLogger, MyHistogrammer))
+class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, aspects = MyLogger.aspects ++ MyHistogrammer.aspects)
 
 
 

@@ -2,32 +2,43 @@ package aoplib.redundancy
 
 import aoplib.AnnotationHelpers
 import chisel3.Data
-import chisel3.aop.{Aspect, Concern, ConcernTransform}
+import chisel3.aop.Aspect
 import chisel3.experimental.RawModule
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, LowFirrtlOptimization, LowForm, MALE, MidForm, Namespace, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, WRef}
 import firrtl.annotations.{Annotation, ReferenceTarget}
 import scala.collection.mutable
 import scala.reflect.runtime.universe.TypeTag
 
-case class RedundancyAspect[DUT <: RawModule, M <: RawModule](selectRoot: DUT => M,
-                                                              selectSignals: M => Seq[Data]
-                                                             )(implicit tag: TypeTag[DUT]) extends Aspect[DUT, M](selectRoot) {
+/** Adds triple redundancy to the selected registers
+  *
+  * @param selectRoots Given top-level module, pick the instances of a module to apply the aspect (root module)
+  * @param selectRegisters Select registers in a module to give triple redundancy
+  * @param dutTag Needed to prevent type-erasure of the top-level module type
+  * @param mTag Needed to prevent type-erasure of the selected modules' type
+  * @tparam DUT Type of top-level module
+  * @tparam M Type of root module (join point)
+  */
+case class RedundancyAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT => Seq[M],
+                                                              selectRegisters: M => Seq[Data]
+                                                             )(implicit dutTag: TypeTag[DUT], mTag: TypeTag[M]) extends Aspect[DUT, M](selectRoots) {
   override def toAnnotation(dut: DUT): AnnotationSeq = {
-    val m = selectRoot(dut)
-    val signals = selectSignals(m)
-    Seq(RedundancyRegisters(signals.map(_.toTarget)))
+    val modules = selectRoots(dut)
+    modules.map { m =>
+      val signals = selectRegisters(m)
+      signals.foreach{ s =>
+        s
+
+      }
+      RedundancyRegisters(signals.map(_.toTarget))
+    }
   }
+  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[RedundancyTransform])
 }
 
 case class RedundancyRegisters(regs: Seq[ReferenceTarget]) extends Annotation {
   override def update(renames: RenameMap): Seq[Annotation] = {
     Seq(RedundancyRegisters(AnnotationHelpers.renameMany(regs, renames)))
   }
-}
-
-abstract class RedundancyConcern[T <: RawModule, R <: RedundancyAspect[T, _]](implicit tag: TypeTag[T]) extends Concern[T, R] {
-  def aspects: Seq[R]
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[RedundancyTransform])
 }
 
 class RedundancyTransform extends Transform with ResolvedAnnotationPaths {

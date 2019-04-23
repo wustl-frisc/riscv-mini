@@ -3,7 +3,7 @@
 package mini
 
 import chisel3._
-import chisel3.aop.{Aspect, Concern}
+import chisel3.aop.Aspect
 import chisel3.testers._
 import chisel3.util._
 import mini.Instructions.{EBREAK, ECALL, ERET, FENCEI}
@@ -217,7 +217,7 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
     tester: (Iterator[String], Long) => T,
     testType: TestType,
     N: Int = 6,
-    concerns: Seq[Concern[_, _]] = Nil) extends org.scalatest.FlatSpec {
+    aspects: Seq[Aspect[_, _]] = Nil) extends org.scalatest.FlatSpec {
   val dutName = implicitly[ClassTag[T]].runtimeClass.getSimpleName
   behavior of dutName
   import ExecutionContext.Implicits.global
@@ -227,7 +227,7 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
     val subresults = subtests map { test =>
       val stream = getClass.getResourceAsStream(s"/$test.hex")
       val loadmem = io.Source.fromInputStream(stream).getLines
-      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, concerns)))
+      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, aspects)))
     }
     Await.result(Future.sequence(subresults), Duration.Inf)
   }
