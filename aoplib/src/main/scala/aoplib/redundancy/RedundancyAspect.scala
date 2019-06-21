@@ -11,26 +11,14 @@ import scala.reflect.runtime.universe.TypeTag
 
 /** Adds triple redundancy to the selected registers
   *
-  * @param selectRoots Given top-level module, pick the instances of a module to apply the aspect (root module)
   * @param selectRegisters Select registers in a module to give triple redundancy
-  * @param dutTag Needed to prevent type-erasure of the top-level module type
-  * @param mTag Needed to prevent type-erasure of the selected modules' type
-  * @tparam DUT Type of top-level module
-  * @tparam M Type of root module (join point)
+  * @param tTag Needed to prevent type-erasure of the top-level module type
+  * @tparam T Type of top-level module
   */
-case class RedundancyAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT => Seq[M],
-                                                              selectRegisters: M => Seq[Data]
-                                                             )(implicit dutTag: TypeTag[DUT], mTag: TypeTag[M]) extends Aspect[DUT, M](selectRoots) {
-  override def toAnnotation(dut: DUT): AnnotationSeq = {
-    val modules = selectRoots(dut)
-    modules.map { m =>
-      val signals = selectRegisters(m)
-      signals.foreach{ s =>
-        s
-
-      }
-      RedundancyRegisters(signals.map(_.toTarget))
-    }
+case class RedundancyAspect[T <: RawModule](selectRegisters: T => Iterable[Data])
+                                           (implicit tTag: TypeTag[T]) extends Aspect[T] {
+  override def toAnnotation(top: T): AnnotationSeq = {
+    Seq(RedundancyRegisters(selectRegisters(top).map(_.toTarget).toList))
   }
   override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[RedundancyTransform])
 }
@@ -154,45 +142,9 @@ class RedundancyTransform extends Transform with ResolvedAnnotationPaths {
           )
         )
       ))
-      val mod = Module(
-        NoInfo,
-        "Blah",
-        Seq(reg, info.red0, info.red1).map(n => Port(NoInfo, n, Input, info.tpe.get)) :+ Port(NoInfo, info.output, Output, info.tpe.get),
-        assignment
-      )
-      //compile(mod, HighForm, MidForm).body
-      mod.body
+      assignment
     }
 
     Block(Seq(Block(wireDefs.toList), s, Block(assignments.toList)))
   }
-
-  //def compile(m: Module, inputForm: CircuitForm, outputForm: CircuitForm): Module = {
-  //  CompilerFirrtl.lower(Circuit(NoInfo, Seq(m), m.name), inputForm, outputForm, Nil, Nil).modules.head.asInstanceOf[Module]
-  //}
 }
-
-
-/*
-object CompilerFirrtl {
-  import firrtl.ir.Circuit
-
-  def lower(c: Circuit, inForm: CircuitForm, outForm: CircuitForm, annotations: AnnotationSeq, additionalXForms: Seq[Transform]): Circuit = {
-    object MyCompiler extends firrtl.Compiler {
-      import firrtl._
-      override def inputForm = inForm
-      override def outputForm = outForm
-      override def emitter: Emitter = new LowFirrtlEmitter
-      override def transforms: Seq[Transform] = {
-        CompilerUtils.getLoweringTransforms(inputForm, outputForm) ++ additionalXForms
-      }
-      def lower(c: ir.Circuit, annotations: AnnotationSeq): ir.Circuit = {
-        val compileResult = compileAndEmit(firrtl.CircuitState(c, inForm, annotations))
-        compileResult.circuit
-      }
-    }
-    MyCompiler.lower(c, annotations)
-  }
-
-}
-*/

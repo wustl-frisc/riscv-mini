@@ -17,17 +17,16 @@ import scala.reflect.runtime.universe.TypeTag
   * @param selectSignals Pick signals from a module to histogram
   * @param selectDesignDone From the top-level design, select a signal which, when true, the design has finished execution
   * @param selectSimDone From the top-level design, select an assignable signal which, when true, the simulation has finished execution
-  * @param dutTag Needed to prevent type-erasure of the top-level module type
+  * @param tTag Needed to prevent type-erasure of the top-level module type
   * @param mTag Needed to prevent type-erasure of the selected modules' type
-  * @tparam DUT Type of top-level module
+  * @tparam T Type of top-level module
   * @tparam M Type of root module (join point)
   */
-case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT => Seq[M],
-                                                             selectSignals: M => Seq[HistogramSignal],
-                                                             selectDesignDone: DUT => Bool,
-                                                             selectSimDone: DUT => Bool
-                                                            )(implicit dutTag: TypeTag[DUT], mTag: TypeTag[M]) extends Aspect[DUT, M](selectRoots) {
-
+case class HistogramAspect[T <: RawModule, M <: RawModule](selectRoots: T => Seq[M],
+                                                           selectSignals: M => Seq[HistogramSignal],
+                                                           selectDesignDone: T => Bool,
+                                                           selectSimDone: T => Bool)
+                                                          (implicit tTag: TypeTag[T], mTag: TypeTag[M]) extends Aspect[T] {
   private final def markDone(d: Data): Unit = {
     annotate(new ChiselAnnotation {
       override def toFirrtl: Annotation = firrtl.passes.wiring.SourceAnnotation(d.toTarget, "histogramDone")
@@ -40,9 +39,9 @@ case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT =>
     })
   }
 
-  final def toAnnotation(dut: DUT): AnnotationSeq = {
+  final def toAnnotation(dut: T): AnnotationSeq = {
     // Create annotation to insert histogram into module
-    val ia = InjectingAspect[DUT, M](
+    val ia = InjectingAspect[T, M](
       selectRoots,
       { m: M =>
         val signals = selectSignals(m)
@@ -82,7 +81,7 @@ case class HistogramAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT =>
     ).toAnnotation(dut)
 
     // Create annotation to insert histogram execution after design execution
-    val ia2 = InjectingAspect({dut: DUT => Seq(dut)}, { dut: DUT => setDone(selectSimDone(dut)) }).toAnnotation(dut)
+    val ia2 = InjectingAspect({dut: T => Seq(dut)}, { dut: T => setDone(selectSimDone(dut)) }).toAnnotation(dut)
 
     ia ++ ia2
   }

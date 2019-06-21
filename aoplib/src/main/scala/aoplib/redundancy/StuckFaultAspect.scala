@@ -9,14 +9,10 @@ import firrtl.annotations.{Annotation, ReferenceTarget}
 import scala.collection.mutable
 import scala.reflect.runtime.universe.TypeTag
 
-case class StuckFaultAspect[DUT <: RawModule, M <: RawModule](selectRoots: DUT => Seq[M],
-                                                              selectSignals: M => Seq[Data]
-                                                             )(implicit dutTag: TypeTag[DUT], mTag: TypeTag[M]) extends Aspect[DUT, M](selectRoots) {
+case class StuckFaultAspect[DUT <: RawModule, M <: RawModule](selectSignals: DUT => Seq[Data])
+                                                             (implicit dutTag: TypeTag[DUT]) extends Aspect[DUT] {
   override def toAnnotation(dut: DUT): AnnotationSeq = {
-    selectRoots(dut).map { m =>
-      val signals = selectSignals(m)
-      FaultyRegisters(signals.map(_.toTarget))
-    }
+    Seq(FaultyRegisters(selectSignals(dut).map(_.toTarget)))
   }
   override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[StuckFaultTransform])
 }

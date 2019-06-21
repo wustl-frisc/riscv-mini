@@ -1,10 +1,14 @@
 package myminiTests
 
+import aoplib.breakpoint.BreakpointAspect
+import aoplib.custom.AnnotatingAspect
 import aoplib.histogram.{HistogramAspect, HistogramSignal}
 import chisel3._
 import chisel3.aop._
 import chisel3.aop.injecting.InjectingAspect
 import chisel3.experimental.dontTouch
+import firrtl.{AnnotationSeq, Transform}
+import firrtl.transforms.DontTouchAnnotation
 import freechips.rocketchip.config.Parameters
 import mini._
 
@@ -12,16 +16,16 @@ import mini._
 // These functions and objects could exist anywhere
 object TileTesterALUAspects {
 
-  // We can reuse functions between Aspects, such as this one
+  // We can reuse functions like this between Aspect instantiations, such as this one
   // This is the primary way to reuse aspect code (via functions, not the aspects themselves)
   def selectALU(tester: TileTester): Seq[ALU] = Seq(tester.dut.asInstanceOf[mini.Tile].core.dpath.alu)
 
-
-  // We can create an aspect that injects additional ALU annotations
-  val annotated = InjectingAspect(
+  // We can even assign to values, but this obviously should be done WITH EXTREME CARE
+  // Adding this aspect will break EVERYTHING....
+  val connected = InjectingAspect(
     selectALU,
     { alu: ALU =>
-      dontTouch(alu.io.B)
+      alu.io.out := 0.U
     }
   )
 
@@ -35,12 +39,11 @@ object TileTesterALUAspects {
     }
   )
 
-  // We can even assign to values, but this obviously should be done WITH EXTREME CARE
-  // Adding this aspect will break EVERYTHING....
-  val connected = InjectingAspect(
+  // We can create an aspect that injects additional ALU annotations
+  val annotated = InjectingAspect(
     selectALU,
     { alu: ALU =>
-      alu.io.out := 0.U
+      dontTouch(alu.io.B)
     }
   )
 
@@ -88,24 +91,35 @@ object TileTesterALUAspects {
     { tester: TileTester => tester.isDone },
     { tester: TileTester => tester.setDone }
   )
-}
 
-case object MyLogger {
-  def aspects = Seq( TileTesterALUAspects.libraried ) // Could add more here, even declare new ones
-}
+  val breakpoint = BreakpointAspect(
+    {top: TileTester => top.collectDeep { case c: Cache if c.instanceName == "icache" => c } }, // Instance to add breakpoint
+    {cache: Cache =>
+      val r = RegNext(cache.state)
+      cache.state === r
+    }, // Breakpoint Condition
+    {cache: Cache => cache.rdata +: (cache.registers().collect { case b: Bits => b } ++ cache.ports()) }, // Signals to record values
+    {cache: Cache => (cache.clock, cache.reset) }, // Clock/Reset signals
+    "mini/src/main/scala/mini/Cache.scala" // Source file to annotate
+  )
 
-case object MyHistogrammer {
-  def aspects = Seq(TileTesterALUAspects.aluHistogram)
+  val addAnnotations = AnnotatingAspect {
+    top: TileTester => Seq(DontTouchAnnotation(top.dut.io.toTarget))
+  }
+  class TileSimpleTests extends TileTests(SimpleTests, aspects = Seq(addAnnotations))
+
 }
 
 
 class TileSimpleTests extends TileTests(SimpleTests, aspects = Nil)
 
-class TileSimpleTestsWithLogger extends TileTests(SimpleTests, aspects = Seq[Aspect[TileTester, _]](TileTesterALUAspects.libraried))
+class TileSimpleTestsWithLogger extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.libraried))
 
-class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, aspects = MyHistogrammer.aspects)
+class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.aluHistogram))
 
-class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, aspects = MyLogger.aspects ++ MyHistogrammer.aspects)
+class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.libraried, TileTesterALUAspects.aluHistogram))
+
+class TileSimpleTestsWithBreakpoint extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.breakpoint))
 
 
 

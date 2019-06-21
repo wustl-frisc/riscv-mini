@@ -217,7 +217,7 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
     tester: (Iterator[String], Long) => T,
     testType: TestType,
     N: Int = 6,
-    aspects: Seq[Aspect[_, _]] = Nil) extends org.scalatest.FlatSpec {
+    aspects: Seq[Aspect[_]] = Nil) extends org.scalatest.FlatSpec {
   val dutName = implicitly[ClassTag[T]].runtimeClass.getSimpleName
   behavior of dutName
   import ExecutionContext.Implicits.global

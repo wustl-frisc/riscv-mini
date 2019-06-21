@@ -148,7 +148,7 @@ class TileTester(
   }
 }
 
-abstract class TileTests(testType: TestType, aspects: Seq[Aspect[_, _]] = Nil) extends IntegrationTests(
+abstract class TileTests(testType: TestType, aspects: Seq[Aspect[_]] = Nil) extends IntegrationTests(
   (loadmem, maxcycles) => new TileTester(new Tile(p), loadmem, maxcycles), testType, 6, aspects)
 class TileSimpleTests extends TileTests(SimpleTests)
 class TileISATests extends TileTests(ISATests)
