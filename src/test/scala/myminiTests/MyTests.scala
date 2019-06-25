@@ -121,6 +121,10 @@ class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, as
 
 class TileSimpleTestsWithBreakpoint extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.breakpoint))
 
+object MyTest extends App {
+  val x = fcl.Command(Nil)
+}
+
 
 
 
