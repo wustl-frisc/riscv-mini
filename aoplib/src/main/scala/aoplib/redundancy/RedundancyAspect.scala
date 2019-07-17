@@ -3,9 +3,10 @@ package aoplib.redundancy
 import aoplib.AnnotationHelpers
 import chisel3.Data
 import chisel3.aop.Aspect
-import chisel3.experimental.RawModule
+import chisel3.experimental.{RawModule, RunFirrtlTransform}
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, LowFirrtlOptimization, LowForm, MALE, MidForm, Namespace, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, WRef}
 import firrtl.annotations.{Annotation, ReferenceTarget}
+
 import scala.collection.mutable
 import scala.reflect.runtime.universe.TypeTag
 
@@ -16,11 +17,11 @@ import scala.reflect.runtime.universe.TypeTag
   * @tparam T Type of top-level module
   */
 case class RedundancyAspect[T <: RawModule](selectRegisters: T => Iterable[Data])
-                                           (implicit tTag: TypeTag[T]) extends Aspect[T] {
+                                           (implicit tTag: TypeTag[T]) extends Aspect[T] with RunFirrtlTransform {
   override def toAnnotation(top: T): AnnotationSeq = {
     Seq(RedundancyRegisters(selectRegisters(top).map(_.toTarget).toList))
   }
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[RedundancyTransform])
+  override def transformClass: Class[_ <: Transform] = classOf[RedundancyTransform]
 }
 
 case class RedundancyRegisters(regs: Seq[ReferenceTarget]) extends Annotation {
@@ -62,7 +63,7 @@ class RedundancyTransform extends Transform with ResolvedAnnotationPaths {
           regMap(r) = RegInfo(red0, red1, ns.newName(r))
         }
         val ret = m map tripleRegs(regMap)// map addMuxing(regMap)
-        println(ret.serialize)
+        //println(ret.serialize)
         ret
       case other => other
     }

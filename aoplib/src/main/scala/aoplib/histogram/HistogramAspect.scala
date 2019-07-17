@@ -3,7 +3,7 @@ package aoplib.histogram
 import chisel3._
 import chisel3.aop._
 import chisel3.aop.injecting.{InjectingAspect, InjectingTransform}
-import chisel3.experimental.{ChiselAnnotation, RawModule, annotate, dontTouch}
+import chisel3.experimental.{ChiselAnnotation, RawModule, RunFirrtlTransforms, annotate, dontTouch}
 import chisel3.util.experimental.BoringUtils
 import firrtl.annotations.Annotation
 import firrtl.passes.wiring.WiringTransform
@@ -26,7 +26,7 @@ case class HistogramAspect[T <: RawModule, M <: RawModule](selectRoots: T => Seq
                                                            selectSignals: M => Seq[HistogramSignal],
                                                            selectDesignDone: T => Bool,
                                                            selectSimDone: T => Bool)
-                                                          (implicit tTag: TypeTag[T], mTag: TypeTag[M]) extends Aspect[T] {
+                                                          (implicit tTag: TypeTag[T], mTag: TypeTag[M]) extends Aspect[T] with RunFirrtlTransforms {
   private final def markDone(d: Data): Unit = {
     annotate(new ChiselAnnotation {
       override def toFirrtl: Annotation = firrtl.passes.wiring.SourceAnnotation(d.toTarget, "histogramDone")
@@ -86,5 +86,5 @@ case class HistogramAspect[T <: RawModule, M <: RawModule](selectRoots: T => Seq
     ia ++ ia2
   }
 
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[WiringTransform])
+  override def transformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[WiringTransform])
 }

@@ -9,5 +9,4 @@ import scala.reflect.runtime.universe.TypeTag
 case class AnnotatingAspect[T <: RawModule](annotateSignals: T => AnnotationSeq)
                                            (implicit tTag: TypeTag[T]) extends Aspect[T] {
   override def toAnnotation(top: T): AnnotationSeq = annotateSignals(top)
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Nil
 }

@@ -6,12 +6,12 @@ import aoplib.AnnotationHelpers
 import chisel3._
 import chisel3.aop.Aspect
 import chisel3.aop.injecting.{InjectingAspect, InjectingTransform}
-import chisel3.core.{ChiselAnnotation, Reset, stop}
-import chisel3.experimental.{RawModule, annotate, dontTouch}
+import chisel3.experimental.{ChiselAnnotation, RawModule, RunFirrtlTransforms, annotate, dontTouch}
 import firrtl.Mappers._
-import firrtl.annotations.{Annotation, ModuleTarget, ReferenceTarget}
+import _root_.firrtl.annotations.{Annotation, ModuleTarget, ReferenceTarget}
 import firrtl.ir._
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, LowForm, MidForm, PrimOps, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, WRef, WSubField, WSubIndex}
+
 import scala.collection.mutable
 import scala.io.Source
 import scala.reflect.runtime.universe.TypeTag
@@ -22,7 +22,7 @@ case class BreakpointAspect[T <: RawModule, M <: RawModule](selectInstances: T =
                                                             selectClockReset: M => (Clock, Reset),
                                                             srcPath: String
                                                            )
-                                                           (implicit tTag: TypeTag[T]) extends Aspect[T] {
+                                                           (implicit tTag: TypeTag[T]) extends Aspect[T] with RunFirrtlTransforms {
   def align(strings: Seq[String]): Seq[String] = {
     strings.zip(getSpaces(strings.map(_.length))).map {
       case (str, spaces) => str + spaces
@@ -62,7 +62,7 @@ case class BreakpointAspect[T <: RawModule, M <: RawModule](selectInstances: T =
       }
     ).toAnnotation(top)
   }
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[BreakpointTransform])
+  override def transformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[BreakpointTransform])
 }
 
 case class Breakpoint(whenBreak: ReferenceTarget, clock: ReferenceTarget, reset: ReferenceTarget, signals: Seq[ReferenceTarget], file: String) extends Annotation {

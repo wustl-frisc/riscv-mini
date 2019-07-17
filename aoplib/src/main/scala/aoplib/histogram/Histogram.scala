@@ -44,7 +44,7 @@ class Histogram(hinfo: HistogramSignal, name: String, module: String) extends Mu
 
   // Calculate Read Value of input
   val readValue = Wire(chiselTypeOf(readPort))
-  val hasWritten = RegInit(VecInit(Seq.fill(histMem.length)(false.B)))
+  val hasWritten = RegInit(VecInit(Seq.fill(histMem.length.toInt)(false.B)))
   when(hasWritten(readAddress)) {
     readValue := readPort
   }.otherwise {

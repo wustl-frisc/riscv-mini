@@ -3,9 +3,10 @@ package aoplib.redundancy
 import aoplib.AnnotationHelpers
 import chisel3.Data
 import chisel3.aop.Aspect
-import chisel3.experimental.RawModule
+import chisel3.experimental.{RawModule, RunFirrtlTransform, RunFirrtlTransforms}
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, MidForm, RenameMap, ResolvedAnnotationPaths, Transform, WRef}
 import firrtl.annotations.{Annotation, ReferenceTarget}
+
 import scala.collection.mutable
 import scala.reflect.runtime.universe.TypeTag
 
@@ -14,14 +15,15 @@ case class StuckFaultAspect[DUT <: RawModule, M <: RawModule](selectSignals: DUT
   override def toAnnotation(dut: DUT): AnnotationSeq = {
     Seq(FaultyRegisters(selectSignals(dut).map(_.toTarget)))
   }
-  override def additionalTransformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[StuckFaultTransform])
 }
 
 
-case class FaultyRegisters(regs: Seq[ReferenceTarget]) extends Annotation {
+case class FaultyRegisters(regs: Seq[ReferenceTarget]) extends Annotation with RunFirrtlTransform {
   override def update(renames: RenameMap): Seq[Annotation] = {
     Seq(FaultyRegisters(AnnotationHelpers.renameMany(regs, renames)))
   }
+  override def transformClass: Class[_ <: Transform] = classOf[StuckFaultTransform]
+  override def toFirrtl  = this
 }
 
 class StuckFaultTransform extends Transform with ResolvedAnnotationPaths {
