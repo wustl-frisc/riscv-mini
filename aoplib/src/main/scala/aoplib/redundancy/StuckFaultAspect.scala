@@ -3,7 +3,7 @@ package aoplib.redundancy
 import aoplib.AnnotationHelpers
 import chisel3.Data
 import chisel3.aop.Aspect
-import chisel3.experimental.{RawModule, RunFirrtlTransform, RunFirrtlTransforms}
+import chisel3.experimental.{RawModule, RunFirrtlTransform}
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, MidForm, RenameMap, ResolvedAnnotationPaths, Transform, WRef}
 import firrtl.annotations.{Annotation, ReferenceTarget}
 

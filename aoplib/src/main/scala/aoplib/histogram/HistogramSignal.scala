@@ -20,4 +20,13 @@ class HistogramSignal(val signal: Bits) {
     case s: SInt => Math.pow(2, s.getWidth - 1).toInt
   }
   def nBins: Int = untilMax - minValue
+  def ticks: Seq[Int] = {
+    val binInterval = (untilMax - minValue) / nBins
+    assert(binInterval * nBins + minValue == untilMax,
+      s"nBins ${nBins} must divide evenly into the range from ${minValue} until ${untilMax}")
+    val range = Range(minValue, untilMax + 1, binInterval)
+    range.toList
+  }
+  def intervals: Seq[(Option[String], Int, Int)] = ticks.zip(ticks.tail).map { case (lo, hi) => (None, lo, hi) }
+  def label: Option[String] = None
 }

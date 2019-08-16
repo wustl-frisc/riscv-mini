@@ -5,12 +5,14 @@ import chisel3.aop.Aspect
 import chisel3.core.Reset
 import chisel3.experimental.{RawModule, RunFirrtlTransform}
 import firrtl.annotations._
+import firrtl.options.Unserializable
+import firrtl.stage.RunFirrtlTransformAnnotation
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, LowForm, MidForm, RenameMap, Transform}
 import floorplan.WebVisualization.Parameters
 
 import scala.reflect.runtime.universe.TypeTag
 
-case class MemberTracker(name: String, targets: Seq[IsMember], finalSelection: Seq[IsMember] => Option[IsMember]) extends Annotation {
+case class MemberTracker(name: String, targets: Seq[IsMember], finalSelection: Seq[IsMember] => Option[IsMember]) extends Annotation with Unserializable {
   override def update(renames: RenameMap): Seq[Annotation] = {
     val newMembers = targets.flatMap { m: IsMember =>
       renames.get(m) match {
@@ -23,7 +25,7 @@ case class MemberTracker(name: String, targets: Seq[IsMember], finalSelection: S
 }
 
 case class FloorplanAspect[T <: RawModule](name: String, dir: String, buildFloorplan: T => LayoutBase)
-                                          (implicit tTag: TypeTag[T]) extends Aspect[T] with RunFirrtlTransform {
+                                          (implicit tTag: TypeTag[T]) extends Aspect[T] {
   def collectTrackers(layout: LayoutBase): Seq[MemberTracker] = {
     def visit(layout: LayoutBase): Seq[MemberTracker] = {
       val trackers = if(layout.properties.get(TargetKey).nonEmpty) {
@@ -40,13 +42,12 @@ case class FloorplanAspect[T <: RawModule](name: String, dir: String, buildFloor
   override def toAnnotation(top: T): AnnotationSeq = {
     val layout = buildFloorplan(top)
     val trackers = collectTrackers(layout)
-    Seq(FloorplanInfo(layout, dir, name)) ++ trackers
+    Seq(FloorplanInfo(layout, dir, name), RunFirrtlTransformAnnotation(new FloorplanTransform())) ++ trackers
   }
-  override def transformClass: Class[_ <: Transform] = classOf[FloorplanTransform]
 }
 
 
-case class FloorplanInfo(layout: LayoutBase, dir: String = "test_run_dir/html", name: String = "layout") extends NoTargetAnnotation
+case class FloorplanInfo(layout: LayoutBase, dir: String = "test_run_dir/html", name: String = "layout") extends NoTargetAnnotation with Unserializable
 
 class FloorplanTransform extends Transform {
   override def inputForm: CircuitForm = LowForm
@@ -94,6 +95,7 @@ class FloorplanTransform extends Transform {
         val updatedLayout = updateLayout(info.layout, renames).resolve(true)
         WebVisualization.generateFiles(updatedLayout, info.dir, Some(info.name))(Parameters(width = 1300, height = 1000))
         PlacementJSON.generateFiles(updatedLayout, info.dir, Some(info.name))
+        logger.info(s"Finished writing floorplan ${info.name} to ${info.dir}.")
     }
     returnedState
   }

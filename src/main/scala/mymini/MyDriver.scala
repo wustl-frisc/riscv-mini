@@ -4,19 +4,20 @@ package mymini
 
 import java.io.{File, FileWriter}
 
-import mini.{MiniConfig, Tile, TileTests, SimpleTests}
+import chisel3.stage.ChiselGeneratorAnnotation
+import firrtl.options.TargetDirAnnotation
+import mini.{MiniConfig, SimpleTests, Tile, TileTests}
 
 object Main extends App {
-  val dir = new File(args(0)) ; dir.mkdirs
   val params = (new MiniConfig).toInstance
-  val chirrtl = firrtl.Parser.parse(chisel3.Driver.emit(() => new Tile(params)))
-  val writer = new FileWriter(new File(dir, s"${chirrtl.main}.fir"))
-  writer write chirrtl.serialize
-  writer.close
+  new chisel3.stage.ChiselStage().execute(args, Seq(
+    ChiselGeneratorAnnotation(() => new Tile(params)),
+    TargetDirAnnotation("test_run_dir")
+  ))
+}
 
-  val verilog = new FileWriter(new File(dir, s"${chirrtl.main}.v"))
-  verilog write (new firrtl.VerilogCompiler).compileAndEmit(firrtl.CircuitState(chirrtl, firrtl.ChirrtlForm)).getEmittedCircuit.value
-  verilog.close
+object AspectMain extends App {
+  //chisel3.Driver.emitVerilog()
 }
 
 class TileSimpleTests extends TileTests(SimpleTests)

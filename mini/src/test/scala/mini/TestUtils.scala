@@ -6,6 +6,7 @@ import chisel3._
 import chisel3.aop.Aspect
 import chisel3.testers._
 import chisel3.util._
+import firrtl.AnnotationSeq
 import mini.Instructions.{EBREAK, ECALL, ERET, FENCEI}
 import mini._
 
@@ -194,20 +195,6 @@ trait TestUtils {
   )
 }
 
-trait HexUtils {
-  def parseNibble(hex: Int) = if (hex >= 'a') hex - 'a' + 10 else hex - '0'
-  // Group 256 chunks together
-  // because big vecs dramatically increase compile time... :(
-  def loadMem(lines: Iterator[String], chunk: Int) = ((lines flatMap { line =>
-    assert(line.length % (chunk / 4) == 0)
-    ((line.length - (chunk / 4)) to 0 by -(chunk / 4)) map { i =>
-      ((0 until (chunk / 4)) foldLeft BigInt(0)){ (inst, j) =>
-        inst | (BigInt(parseNibble(line(i + j))) << (4 * ((chunk / 4) - (j + 1))))
-      }
-    }
-  }) map (_.U(chunk.W)) sliding (1 << 8, 1 << 8)).toSeq
-}
-
 object TestParams {
   implicit val p = 
     (new MiniConfig).toInstance alterPartial { case Trace => false }
@@ -217,7 +204,7 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
     tester: (Iterator[String], Long) => T,
     testType: TestType,
     N: Int = 6,
-    aspects: Seq[Aspect[_]] = Nil) extends org.scalatest.FlatSpec {
+    annotations: AnnotationSeq = Nil) extends org.scalatest.FlatSpec {
   val dutName = implicitly[ClassTag[T]].runtimeClass.getSimpleName
   behavior of dutName
   import ExecutionContext.Implicits.global
@@ -227,7 +214,7 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
     val subresults = subtests map { test =>
       val stream = getClass.getResourceAsStream(s"/$test.hex")
       val loadmem = io.Source.fromInputStream(stream).getLines
-      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, aspects)))
+      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, annotations)))
     }
     Await.result(Future.sequence(subresults), Duration.Inf)
   }

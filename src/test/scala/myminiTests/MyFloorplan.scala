@@ -1,5 +1,0 @@
-package myminiTests
-
-class MyFloorplan {
-
-}

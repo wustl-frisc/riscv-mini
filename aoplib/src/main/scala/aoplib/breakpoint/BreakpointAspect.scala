@@ -6,10 +6,11 @@ import aoplib.AnnotationHelpers
 import chisel3._
 import chisel3.aop.Aspect
 import chisel3.aop.injecting.{InjectingAspect, InjectingTransform}
-import chisel3.experimental.{ChiselAnnotation, RawModule, RunFirrtlTransforms, annotate, dontTouch}
+import chisel3.experimental.{ChiselAnnotation, RawModule, annotate, dontTouch}
 import firrtl.Mappers._
 import _root_.firrtl.annotations.{Annotation, ModuleTarget, ReferenceTarget}
 import firrtl.ir._
+import firrtl.stage.RunFirrtlTransformAnnotation
 import firrtl.{AnnotationSeq, CircuitForm, CircuitState, HighForm, LowForm, MidForm, PrimOps, RenameMap, ResolveAndCheck, ResolvedAnnotationPaths, Transform, WRef, WSubField, WSubIndex}
 
 import scala.collection.mutable
@@ -22,7 +23,7 @@ case class BreakpointAspect[T <: RawModule, M <: RawModule](selectInstances: T =
                                                             selectClockReset: M => (Clock, Reset),
                                                             srcPath: String
                                                            )
-                                                           (implicit tTag: TypeTag[T]) extends Aspect[T] with RunFirrtlTransforms {
+                                                           (implicit tTag: TypeTag[T]) extends Aspect[T] {
   def align(strings: Seq[String]): Seq[String] = {
     strings.zip(getSpaces(strings.map(_.length))).map {
       case (str, spaces) => str + spaces
@@ -60,9 +61,8 @@ case class BreakpointAspect[T <: RawModule, M <: RawModule](selectInstances: T =
           }
         })
       }
-    ).toAnnotation(top)
+    ).toAnnotation(top) ++ Seq(RunFirrtlTransformAnnotation(new InjectingTransform), RunFirrtlTransformAnnotation(new BreakpointTransform))
   }
-  override def transformClasses: Seq[Class[_ <: Transform]] = Seq(classOf[InjectingTransform], classOf[BreakpointTransform])
 }
 
 case class Breakpoint(whenBreak: ReferenceTarget, clock: ReferenceTarget, reset: ReferenceTarget, signals: Seq[ReferenceTarget], file: String) extends Annotation {

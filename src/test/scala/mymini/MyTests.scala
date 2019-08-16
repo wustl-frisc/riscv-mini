@@ -1,4 +1,4 @@
-package myminiTests
+package mymini
 
 import aoplib.breakpoint.BreakpointAspect
 import aoplib.custom.AnnotatingAspect
@@ -52,15 +52,15 @@ object TileTesterALUAspects {
     selectALU,
     { alu: ALU =>
       class Logger(p: Parameters) extends Module {
-        val io = IO(new Bundle {
-          val A = Input(UInt())
-          val B = Input(UInt())
-          val alu_op = Input(UInt(4.W))
-        })
-        when(io.alu_op === 0.U) {
-          printf("A == %d, B == %d, opcode == %d\n", io.A, io.B, io.alu_op)
-        }
+      val io = IO(new Bundle {
+        val A = Input(UInt())
+        val B = Input(UInt())
+        val alu_op = Input(UInt(4.W))
+      })
+      when(io.alu_op =/= 0.U) {
+        printf("A == %d, B == %d, opcode == %d\n", io.A, io.B, io.alu_op)
       }
+    }
 
       val logger = Module(new Logger(alu.p))
       logger.io.A := alu.io.A
@@ -93,12 +93,12 @@ object TileTesterALUAspects {
   )
 
   val breakpoint = BreakpointAspect(
-    {top: TileTester => top.collectDeep { case c: Cache if c.instanceName == "icache" => c } }, // Instance to add breakpoint
+    {top: TileTester => Select.collectDeep(top) { case c: Cache if c.instanceName == "icache" => c } }, // Instance to add breakpoint
     {cache: Cache =>
       val r = RegNext(cache.state)
       cache.state === r
     }, // Breakpoint Condition
-    {cache: Cache => cache.rdata +: (cache.registers().collect { case b: Bits => b } ++ cache.ports()) }, // Signals to record values
+    {cache: Cache => cache.rdata +: (Select.registers(cache).collect { case b: Bits => b } ++ Select.ios(cache)) }, // Signals to record values
     {cache: Cache => (cache.clock, cache.reset) }, // Clock/Reset signals
     "mini/src/main/scala/mini/Cache.scala" // Source file to annotate
   )
@@ -106,20 +106,20 @@ object TileTesterALUAspects {
   val addAnnotations = AnnotatingAspect {
     top: TileTester => Seq(DontTouchAnnotation(top.dut.io.toTarget))
   }
-  class TileSimpleTests extends TileTests(SimpleTests, aspects = Seq(addAnnotations))
+  class TileSimpleTests extends TileTests(SimpleTests, annotations = Seq(addAnnotations))
 
 }
 
 
-class TileSimpleTests extends TileTests(SimpleTests, aspects = Nil)
+class TileSimpleTests extends TileTests(SimpleTests, annotations = Nil)
 
-class TileSimpleTestsWithLogger extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.libraried))
+class TileSimpleTestsWithLogger extends TileTests(SimpleTests, annotations = Seq(TileTesterALUAspects.libraried))
 
-class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.aluHistogram))
+class TileSimpleTestsWithHistogrammer extends TileTests(SimpleTests, annotations = Seq(TileTesterALUAspects.aluHistogram))
 
-class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.libraried, TileTesterALUAspects.aluHistogram))
+class TileSimpleTestsWithLoggerAndHistogrammer extends TileTests(SimpleTests, annotations = Seq(TileTesterALUAspects.libraried, TileTesterALUAspects.aluHistogram))
 
-class TileSimpleTestsWithBreakpoint extends TileTests(SimpleTests, aspects = Seq(TileTesterALUAspects.breakpoint))
+class TileSimpleTestsWithBreakpoint extends TileTests(SimpleTests, annotations = Seq(TileTesterALUAspects.breakpoint))
 
 object MyTest extends App {
   val x = fcl.Command(Nil)

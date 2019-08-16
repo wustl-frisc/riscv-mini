@@ -24,6 +24,8 @@ def javacOptionsVersion(scalaVersion: String): Seq[String] = {
   }
 }
 
+updateOptions := updateOptions.value.withLatestSnapshots(true)
+
 scalaVersion := "2.12.4"
 
 crossScalaVersions := Seq("2.11.12", "2.12.4")
@@ -80,8 +82,8 @@ val floorplanSettings = Seq(
 )
 
 lazy val lib  = project settings commonSettings settings srcSettings dependsOn chisel
-lazy val aoplib  = project settings commonSettings settings srcSettings dependsOn chisel
 lazy val mini = project settings miniSettings settings srcSettings dependsOn lib dependsOn aoplib dependsOn chisel
 lazy val fcl = project in file("./fcl-floorplan/fcl") settings commonSettings settings srcSettings dependsOn chisel
 lazy val floorplan = project in file("./fcl-floorplan/floorplan") settings commonSettings settings srcSettings settings floorplanSettings dependsOn chisel dependsOn fcl
-lazy val mymini  = project in file(".") settings commonSettings settings srcSettings dependsOn chisel dependsOn aoplib dependsOn lib dependsOn(mini % "compile->test;compile->compile") dependsOn fcl dependsOn floorplan
+lazy val aoplib  = project settings commonSettings settings srcSettings dependsOn chisel dependsOn fcl dependsOn floorplan
+lazy val mymini  = project in file(".") settings commonSettings settings srcSettings dependsOn chisel dependsOn aoplib dependsOn lib dependsOn(mini % "compile->test;compile->compile;test->test") dependsOn fcl dependsOn floorplan

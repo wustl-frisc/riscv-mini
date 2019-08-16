@@ -5,39 +5,41 @@ import chisel3.aop.Aspect
 import chisel3.aop.injecting.{InjectStatement, InjectingAspect, InjectingTransform}
 import chisel3.experimental.RawModule
 import chisel3.{Clock, Reset}
+import firrtl.annotations.Annotation
+import firrtl.options.Unserializable
 import firrtl.{AnnotationSeq, RenameMap}
 
 import scala.reflect.runtime.universe.TypeTag
 
-case class CoverGroup[M<:RawModule, TOP <: RawModule](
-    label: String,
-    selectModules: TOP => Seq[M],
-    selectClock: M => Clock,
-    selectReset: M => Reset,
-    buildCovers: M => Seq[CoverPoint],
-    options: GroupOptions)(implicit mTag: TypeTag[M], topTag: TypeTag[TOP]) extends Aspect[TOP] {
+//object CoverGroup {
+//  def apply(label: String,
+//            module: RawModule,
+//            clock: Clock,
+//            reset: Reset,
+//            points: Seq[CoverPoint],
+//            options: GroupOptions = GroupOptions()): CoverGroup = {
+//    CoverGroup(label, module, clock, reset, points, options)
+//  }
+//}
 
-  override def toAnnotation(top: TOP): AnnotationSeq = {
-    InjectingAspect(selectModules,
-      (module: M) => {
-        val clock = selectClock(module)
-        val reset = selectReset(module)
-        val covers = buildCovers(module)
-
-        covers.foreach { cover =>
-          val signal = cover.signal
-          cover.bins.foreach {
-            case b: Bin =>
-          }
-
-        }
-      }
-    ).toAnnotation(top)
+case class CoverGroup (label: String,
+                          module: RawModule,
+                          clock: Clock,
+                          reset: Reset,
+                          points: Seq[CoverPoint],
+                          options: GroupOptions = GroupOptions(),
+                         ) extends Annotation with Unserializable {
+  override def update(renames: RenameMap): Seq[CoverGroup] = {
+    def updateTracker(t: SignalTracker): SignalTracker = {
+      val renamed = t.update(renames)
+      renamed.head
+    }
+    Seq(this.copy(points = points.map(_.update(renames))))
   }
-
 }
 
 case class GroupOptions(weight: Int = 1)
+
 /*
 weight=number, 1
 
