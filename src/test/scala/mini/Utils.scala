@@ -12,6 +12,12 @@ case object SimpleTests extends TestType {
   val maxcycles = 15000L
 }
 
+case object OtherSimpleTests extends TestType {
+  //val tests = List("rv32ui-p-simple", "rv32ui-p-add", "rv32ui-p-auipc")
+  val tests = List("rv32ui-p-bne")
+  val maxcycles = 15000L
+}
+
 case object ISATests extends TestType {
   val tests = (List("simple", "add", "addi", "auipc", "and", "andi", // TODO: "fence_i",
     "sb", "sh", "sw", "lb", "lbu", "lh", "lhu", "lui", "lw",

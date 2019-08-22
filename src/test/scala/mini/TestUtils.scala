@@ -2,15 +2,24 @@
 
 package mini
 
+import java.io.File
+
 import chisel3._
+import chisel3.experimental.RunFirrtlTransform
+import chisel3.stage.phases.AspectPhase
+import chisel3.stage.{ChiselCircuitAnnotation, DesignAnnotation}
 import chisel3.testers._
 import chisel3.util._
-import firrtl.AnnotationSeq
+import firrtl.annotations.NoTargetAnnotation
+import firrtl.{AnnotationSeq, CommonOptions, ExecutionOptionsManager, FirrtlExecutionFailure, FirrtlExecutionOptions, FirrtlExecutionSuccess, HasFirrtlOptions, Transform}
 import mini.Instructions.{EBREAK, ECALL, ERET, FENCEI}
 import mini._
+import firrtl.transforms.BlackBoxSourceHelper.writeResourceToDirectory
 
+import scala.collection.mutable
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.reflect.ClassTag
+import scala.sys.process.{Process, ProcessLogger}
 
 trait DatapathTest
 object BypassTest extends DatapathTest {
@@ -20,6 +29,9 @@ object ExceptionTest extends DatapathTest {
   override def toString: String = "exception test"
 }
 // Define your own test
+case class TagCapture(tag: String) extends NoTargetAnnotation
+case class TaggedLineProcessor(f: Seq[String] => Unit) extends NoTargetAnnotation
+
 
 trait TestUtils {
   implicit def boolToBoolean(x: Bool) = x.litValue() == 1
@@ -212,10 +224,128 @@ abstract class IntegrationTests[T <: BasicTester : ClassTag](
   val results = testType.tests sliding (N, N) map { subtests =>
     val subresults = subtests map { test =>
       val stream = getClass.getResourceAsStream(s"/$test.hex")
-      val loadmem = io.Source.fromInputStream(stream).getLines
-      Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, annotations)))
+      val loadmem = io.Source.fromInputStream(stream).getLines.toList
+      stream.close()
+      //Future(test -> (TesterDriver.execute(() => tester(loadmem, testType.maxcycles), Nil, annotations)))
+      val x = TesterDriver.execute(() => tester(loadmem.iterator, testType.maxcycles), Nil, annotations)
+      test -> x
     }
-    Await.result(Future.sequence(subresults), Duration.Inf)
+    //Await.result(Future.sequence(subresults), Duration.Inf)
+    subresults
   }
   results.flatten foreach { case (name, pass) => it should s"pass $name" in { assert(pass) } }
+}
+
+object TesterDriver extends BackendCompilationUtilities {
+
+  /** For use with modules that should successfully be elaborated by the
+    * frontend, and which can be turned into executables with assertions. */
+  def execute(t: () => BasicTester,
+              additionalVResources: Seq[String] = Seq(),
+              annotations: AnnotationSeq = Seq()
+             ): Boolean = {
+    // Invoke the chisel compiler to get the circuit's IR
+    val (circuit, dut) = new chisel3.stage.ChiselGeneratorAnnotation(finishWrapper(t)).elaborate.toSeq match {
+      case Seq(ChiselCircuitAnnotation(cir), d:DesignAnnotation[_]) => (cir, d)
+    }
+
+    // Set up a bunch of file handlers based on a random temp filename,
+    // plus the quirks of Verilator's naming conventions
+    val target = circuit.name
+
+    val path = createTestDirectory(target)
+    val fname = new File(path, target)
+
+    // For now, dump the IR out to a file
+    Driver.dumpFirrtl(circuit, Some(new File(fname.toString + ".fir")))
+    val firrtlCircuit = Driver.toFirrtl(circuit)
+
+    // Copy CPP harness and other Verilog sources from resources into files
+    val cppHarness =  new File(path, "top.cpp")
+    copyResourceToFile("/chisel3/top.cpp", cppHarness)
+    // NOTE: firrtl.Driver.execute() may end up copying these same resources in its BlackBoxSourceHelper code.
+    // As long as the same names are used for the output files, and we avoid including duplicate files
+    //  in BackendCompilationUtilities.verilogToCpp(), we should be okay.
+    // To that end, we use the same method to write the resource to the target directory.
+    val additionalVFiles = additionalVResources.map((name: String) => {
+      writeResourceToDirectory(name, path)
+    })
+
+    // Compile firrtl
+    val transforms = circuit.annotations.collect {
+      case anno: RunFirrtlTransform => anno.transformClass
+    }.distinct
+      .filterNot(_ == classOf[Transform])
+      .map { transformClass: Class[_ <: Transform] => transformClass.newInstance() }
+    val newAnnotations = circuit.annotations.map(_.toFirrtl).toList ++ annotations ++ Seq(dut)
+    val resolvedAnnotations = new AspectPhase().transform(newAnnotations).toList
+    val optionsManager = new ExecutionOptionsManager("chisel3") with HasChiselExecutionOptions with HasFirrtlOptions {
+      commonOptions = CommonOptions(topName = target, targetDirName = path.getAbsolutePath)
+      firrtlOptions = FirrtlExecutionOptions(compilerName = "verilog", annotations = resolvedAnnotations,
+        customTransforms = transforms,
+        firrtlCircuit = Some(firrtlCircuit))
+    }
+    val annos = firrtl.Driver.execute(optionsManager) match {
+      case _: FirrtlExecutionFailure => return false
+      case x: FirrtlExecutionSuccess => x.circuitState.annotations
+    }
+
+    val tags = annos.toSeq.collect {
+      case TagCapture(tag: String) => tag
+    }
+
+    val tagSize = if(tags.nonEmpty) {
+      assert(tags.map(_.length()).toSet.size == 1)
+      tags.head.length()
+    } else 0
+
+    val processTaggedLines = annos.toSeq.collect {
+      case t: TaggedLineProcessor => t
+    }
+
+    // Use sys.Process to invoke a bunch of backend stuff, then run the resulting exe
+    val ret = if ((verilogToCpp(target, path, additionalVFiles, cppHarness) #&&
+      cppToExe(target, path)).! == 0) {
+      val (succeeded, capturedLines) = executeWithLineCapture(target, path, "", tags.toSet, tagSize)
+      processTaggedLines.foreach { p => p.f(capturedLines.toSeq) }
+      succeeded
+    } else {
+      false
+    }
+    ret
+  }
+
+  def executeWithLineCapture( prefix: String,
+                              dir: File,
+                              assertionMsg: String = "",
+                              tags: Set[String] = Set(),
+                              tagLength: Int = 0): (Boolean, Set[String]) = {
+
+    var triggered = false
+    val capturedLines = mutable.HashSet[String]()
+    val assertionMessageSupplied = assertionMsg != ""
+    val e = Process(s"./V$prefix", dir) !
+      ProcessLogger(line => {
+        if(line.length() >= tagLength && tags.contains(line.substring(0, tagLength))) {
+          capturedLines += line
+        }
+        triggered = triggered || (assertionMessageSupplied && line.contains(assertionMsg))
+        System.out.println(line) // scalastyle:ignore regex
+      })
+    // Fail if a line contained an assertion or if we get a non-zero exit code
+    //  or, we get a SIGABRT (assertion failure) and we didn't provide a specific assertion message
+    (!(triggered || (e != 0 && (e != 134 || !assertionMessageSupplied))), capturedLines.toSet)
+  }
+
+  /**
+    * Calls the finish method of an BasicTester or a class that extends it.
+    * The finish method is a hook for code that augments the circuit built in the constructor.
+    */
+  def finishWrapper(test: () => BasicTester): () => BasicTester = {
+    () => {
+      val tester = test()
+      tester.finish()
+      tester
+    }
+  }
 }
