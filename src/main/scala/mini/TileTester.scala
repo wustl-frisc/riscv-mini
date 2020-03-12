@@ -4,10 +4,14 @@ import chisel3._
 import chisel3.experimental.ExtModule
 import chisel3.testers._
 import chisel3.util._
+import firrtl.annotations.NoTargetAnnotation
 import freechips.rocketchip.config.Parameters
 import junctions._
 import mini._
 
+// Define your own test
+case class TagCapture(tag: String) extends NoTargetAnnotation
+case class TaggedLineProcessor(f: Seq[String] => Unit) extends NoTargetAnnotation
 trait HexUtils {
   def parseNibble(hex: Int) = if (hex >= 'a') hex - 'a' + 10 else hex - '0'
   // Group 256 chunks together

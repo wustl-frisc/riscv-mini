@@ -28,9 +28,6 @@ object BypassTest extends DatapathTest {
 object ExceptionTest extends DatapathTest {
   override def toString: String = "exception test"
 }
-// Define your own test
-case class TagCapture(tag: String) extends NoTargetAnnotation
-case class TaggedLineProcessor(f: Seq[String] => Unit) extends NoTargetAnnotation
 
 
 trait TestUtils {
