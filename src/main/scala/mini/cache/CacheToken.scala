@@ -1,3 +1,6 @@
-import foam._
+package mini
 
-case class CacheToken extends Token
+import foam._
+import chisel3._
+
+case class CacheToken(override val cond: Bool) extends ChiselToken

@@ -6,6 +6,7 @@ import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util._
 import junctions._
+import foam._
 
 class CacheReq(addrWidth: Int, dataWidth: Int) extends Bundle {
   val addr = UInt(addrWidth.W)
@@ -34,15 +35,6 @@ class MetaData(tagLength: Int) extends Bundle {
   val tag = UInt(tagLength.W)
 }
 
-object CacheState {
-  val sIdle = CacheStateFactory()
-  val sReadCache = CacheStateFactory()
-  val sWriteCache = CacheStateFactory()
-  val sWriteBack = CacheStateFactory()
-  val sWriteAck = CacheStateFactory()
-  val sRefillReady = CacheStateFactory()
-  val sRefill = CacheStateFactory()
-}
 
 class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
@@ -59,9 +51,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   val io = IO(new CacheModuleIO(nasti, addrWidth = xlen, dataWidth = xlen))
 
-  // cache states
-  import CacheState._
-  val state = RegInit(sIdle)
   // memory
   val v = RegInit(0.U(nSets.W))
   val d = RegInit(0.U(nSets.W))
@@ -77,10 +66,10 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, dataBeats)
   val (write_count, write_wrap_out) = Counter(io.nasti.w.fire, dataBeats)
 
-  val is_idle = false.B
-  val is_read = false.B
-  val is_write = false.B
-  val is_alloc = false.B //state === sRefill && read_wrap_out
+  val is_idle = RegInit(false.B)
+  val is_read = RegInit(false.B)
+  val is_write = RegInit(false.B)
+  val is_alloc = RegInit(false.B) //state === sRefill && read_wrap_out
   val is_alloc_reg = RegNext(is_alloc)
 
   val hit = Wire(Bool())
@@ -144,7 +133,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   )
   io.nasti.ar.valid := false.B
   // read data
-  io.nasti.r.ready := state === sRefill
+  io.nasti.r.ready := false.B
   when(io.nasti.r.fire) {
     refill_buf(read_count) := io.nasti.r.bits.data
   }
@@ -167,93 +156,105 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   // write resp
   io.nasti.b.ready := false.B
 
-  val codeMap = Map[State, () => Unit](
-    sIdle -> () => {
-      is_idle := true.B
-    },
-    sReadCache -> () => {
-      is_read := true.B
+  // Cache FSM
+  val is_dirty = v(idx_reg) && d(idx_reg)
+
+  val sIdle = CacheState({
+     is_idle := true.B
+  })
+  val sReadCache = CacheState({
+    is_read := true.B
       when(!hit){
         io.nasti.aw.valid := is_dirty
         io.nasti.ar.valid := !is_dirty
       }
-    },
-    sWriteCache -> () => {
-      is_write := true.B
-      when(!(hit || is_alloc_reg || io.cpu.abort)) {
-        io.nasti.aw.valid := is_dirty
-        io.nasti.ar.valid := !is_dirty
-      }
-    },
-    sWriteBack -> () => {
-      io.nasti.w.valid := true.B
-    },
-    sWriteAck -> () => {
-      io.nasti.b.ready := true.B
-    },
-    sRefillReady -> () => {
-      io.nasti.ar.valid := true.B
+  })
+  val sWriteCache = CacheState({
+    is_write := true.B
+    when(!(hit || is_alloc_reg || io.cpu.abort)) {
+      io.nasti.aw.valid := is_dirty
+      io.nasti.ar.valid := !is_dirty
     }
-    sRefill -> () => {
-      when(read_wrap_out) {
+  })
+  val sWriteBack = CacheState({
+    io.nasti.w.valid := true.B
+  })
+  val sWriteAck = CacheState({
+    io.nasti.b.ready := true.B
+  })
+  val sRefillReady = CacheState({
+    io.nasti.ar.valid := true.B
+  })
+  val sRefill = CacheState({
+    io.nasti.r.ready := true.B
+    when(read_wrap_out) {
         is_alloc := true.B
       }
-    }
-  )
+  })
 
-  // Cache FSM
-  val is_dirty = v(idx_reg) && d(idx_reg)
-  switch(state) {
-    is(sIdle) {
-      when(io.cpu.req.valid) {
-        state := Mux(io.cpu.req.bits.mask.orR, sWriteCache, sReadCache)
-      }
-    }
-    is(sReadCache) {
-      when(hit) {
-        when(io.cpu.req.valid) {
-          state := Mux(io.cpu.req.bits.mask.orR, sWriteCache, sReadCache)
-        }.otherwise {
-          state := sIdle
-        }
-      }.otherwise {
-        when(io.nasti.aw.fire) {
-          state := sWriteBack
-        }.elsewhen(io.nasti.ar.fire) {
-          state := sRefill
-        }
-      }
-    }
-    is(sWriteCache) {
-      when(hit || is_alloc_reg || io.cpu.abort) {
-        state := sIdle
-      }.otherwise {
-        when(io.nasti.aw.fire) {
-          state := sWriteBack
-        }.elsewhen(io.nasti.ar.fire) {
-          state := sRefill
-        }
-      }
-    }
-    is(sWriteBack) {
-      when(write_wrap_out) {
-        state := sWriteAck
-      }
-    }
-    is(sWriteAck) {
-      when(io.nasti.b.fire) {
-        state := sRefillReady
-      }
-    }
-    is(sRefillReady) {
-      when(io.nasti.ar.fire) {
-        state := sRefill
-      }
-    }
-    is(sRefill) {
-      when(read_wrap_out) {
-        state := Mux(cpu_mask.orR, sWriteCache, sIdle)
-      }
-    }
+  val readReq = CacheToken(io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeReq = CacheToken(io.cpu.req.valid && io.cpu.req.bits.mask.orR)
+  val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeHit = CacheToken(hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR)
+  val readFinish = CacheToken(!hit && !io.cpu.req.valid)
+  val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire)
+  val cleanMiss = CacheToken(!hit && io.nasti.ar.fire)
+  val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort)
+  val ack = CacheToken(write_wrap_out)
+  val refillReady = CacheToken(io.nasti.b.fire)
+  val doRefill = CacheToken(io.nasti.ar.fire)
+  val refillFinish = CacheToken(read_wrap_out && !cpu_mask.orR)
+  val doWrite = CacheToken(read_wrap_out && cpu_mask.orR)
+
+  val cacheNFA = (new NFA(sIdle))
+    .addTransition((sIdle, readReq), sReadCache)
+    .addTransition((sIdle, writeReq), sWriteCache)
+    .addTransition((sReadCache, readHit), sReadCache)
+    .addTransition((sReadCache, readFinish), sIdle)
+    .addTransition((sReadCache, dirtyMiss), sWriteBack)
+    .addTransition((sReadCache, cleanMiss), sRefill)
+    .addTransition((sReadCache, writeHit), sWriteCache)
+    .addTransition((sWriteCache, writeFinish), sIdle)
+    .addTransition((sWriteCache, dirtyMiss), sWriteBack)
+    .addTransition((sWriteCache, cleanMiss), sRefill)
+    .addTransition((sWriteBack, ack), sWriteAck)
+    .addTransition((sWriteAck, refillReady), sRefillReady)
+    .addTransition((sRefillReady, doRefill), sRefill)
+    .addTransition((sRefill, refillFinish), sIdle)
+    .addTransition((sRefill, doWrite), sWriteCache)
+
+    println(cacheNFA.states)
+
+  val sError = CacheState({
+    printf("Error!")
+  })
+  val cacheDFA = new DFA(cacheNFA, sError)
+   val namer: Any => String = (element) => element match {
+    case s: State if (s == sIdle) => "sIdle"
+    case s: State if (s == sReadCache) => "sReadCache"
+    case s: State if (s == sWriteCache) => "sWriteCache"
+    case s: State if (s == sWriteBack) => "sWriteBack"
+    case s: State if (s == sWriteAck) => "sWriteAck"
+    case s: State if (s == sRefillReady) => "sRefillReady"
+    case s: State if (s == sRefill) => "sRefill"
+    case s: State if (s == sError) => "sError"
+    case t: Token if (t == readReq) => "readReq"
+    case t: Token if (t == writeReq) => "writeReq"
+    case t: Token if (t == readHit) => "readHit"
+    case t: Token if (t == writeHit) => "writeHit"
+    case t: Token if (t == readFinish) => "readFinish"
+    case t: Token if (t == dirtyMiss) => "dirtyMiss"
+    case t: Token if (t == cleanMiss) => "cleanMiss"
+    case t: Token if (t == writeFinish) => "writeFinish"
+    case t: Token if (t == ack) => "ack"
+    case t: Token if (t == refillReady) => "refillReady"
+    case t: Token if (t == doRefill) => "doRefill"
+    case t: Token if (t == refillFinish) => "refillFinish"
+    case t: Token if (t == doWrite) => "doWrite"
+    case other => "other"
   }
+
+  Emitter.emitGV(cacheNFA, namer)
+
+  //ChiselFSMBuilder(cacheDFA)
 }
