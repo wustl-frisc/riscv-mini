@@ -2,7 +2,12 @@ package mini
 
 import foam._
 
-case class CacheState(override val code: Any) extends ChiselState {
+case class CacheState(code: () => Unit) extends ChiselState {
   override val isAccept = true
-  override def toString = super.toString + code.toString
+}
+
+object CacheStateFactory {
+  def apply(body: => Any) = CacheState(() => {
+    body
+  })
 }

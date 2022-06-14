@@ -159,33 +159,33 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   // Cache FSM
   val is_dirty = v(idx_reg) && d(idx_reg)
 
-  val sIdle = CacheState({
+  val sIdle = CacheStateFactory({
      is_idle := true.B
   })
-  val sReadCache = CacheState({
+  val sReadCache = CacheStateFactory({
     is_read := true.B
       when(!hit){
         io.nasti.aw.valid := is_dirty
         io.nasti.ar.valid := !is_dirty
       }
   })
-  val sWriteCache = CacheState({
+  val sWriteCache = CacheStateFactory({
     is_write := true.B
     when(!(hit || is_alloc_reg || io.cpu.abort)) {
       io.nasti.aw.valid := is_dirty
       io.nasti.ar.valid := !is_dirty
     }
   })
-  val sWriteBack = CacheState({
+  val sWriteBack = CacheStateFactory({
     io.nasti.w.valid := true.B
   })
-  val sWriteAck = CacheState({
+  val sWriteAck = CacheStateFactory({
     io.nasti.b.ready := true.B
   })
-  val sRefillReady = CacheState({
+  val sRefillReady = CacheStateFactory({
     io.nasti.ar.valid := true.B
   })
-  val sRefill = CacheState({
+  val sRefill = CacheStateFactory({
     io.nasti.r.ready := true.B
     when(read_wrap_out) {
         is_alloc := true.B
@@ -223,9 +223,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     .addTransition((sRefill, refillFinish), sIdle)
     .addTransition((sRefill, doWrite), sWriteCache)
 
-    println(cacheNFA.states)
-
-  val sError = CacheState({
+  val sError = CacheStateFactory({
     printf("Error!")
   })
   val cacheDFA = new DFA(cacheNFA, sError)
@@ -254,7 +252,5 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     case other => "other"
   }
 
-  Emitter.emitGV(cacheNFA, namer)
-
-  //ChiselFSMBuilder(cacheDFA)
+  ChiselFSMBuilder(cacheDFA)
 }
