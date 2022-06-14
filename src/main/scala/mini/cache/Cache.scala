@@ -34,8 +34,14 @@ class MetaData(tagLength: Int) extends Bundle {
   val tag = UInt(tagLength.W)
 }
 
-object CacheState extends ChiselEnum {
-  val sIdle, sReadCache, sWriteCache, sWriteBack, sWriteAck, sRefillReady, sRefill = Value
+object CacheState {
+  val sIdle = CacheStateFactory()
+  val sReadCache = CacheStateFactory()
+  val sWriteCache = CacheStateFactory()
+  val sWriteBack = CacheStateFactory()
+  val sWriteAck = CacheStateFactory()
+  val sRefillReady = CacheStateFactory()
+  val sRefill = CacheStateFactory()
 }
 
 class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
@@ -71,10 +77,10 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, dataBeats)
   val (write_count, write_wrap_out) = Counter(io.nasti.w.fire, dataBeats)
 
-  val is_idle = state === sIdle
-  val is_read = state === sReadCache
-  val is_write = state === sWriteCache
-  val is_alloc = state === sRefill && read_wrap_out
+  val is_idle = false.B
+  val is_read = false.B
+  val is_write = false.B
+  val is_alloc = false.B //state === sRefill && read_wrap_out
   val is_alloc_reg = RegNext(is_alloc)
 
   val hit = Wire(Bool())
@@ -161,6 +167,40 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   // write resp
   io.nasti.b.ready := false.B
 
+  val codeMap = Map[State, () => Unit](
+    sIdle -> () => {
+      is_idle := true.B
+    },
+    sReadCache -> () => {
+      is_read := true.B
+      when(!hit){
+        io.nasti.aw.valid := is_dirty
+        io.nasti.ar.valid := !is_dirty
+      }
+    },
+    sWriteCache -> () => {
+      is_write := true.B
+      when(!(hit || is_alloc_reg || io.cpu.abort)) {
+        io.nasti.aw.valid := is_dirty
+        io.nasti.ar.valid := !is_dirty
+      }
+    },
+    sWriteBack -> () => {
+      io.nasti.w.valid := true.B
+    },
+    sWriteAck -> () => {
+      io.nasti.b.ready := true.B
+    },
+    sRefillReady -> () => {
+      io.nasti.ar.valid := true.B
+    }
+    sRefill -> () => {
+      when(read_wrap_out) {
+        is_alloc := true.B
+      }
+    }
+  )
+
   // Cache FSM
   val is_dirty = v(idx_reg) && d(idx_reg)
   switch(state) {
@@ -177,8 +217,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
           state := sIdle
         }
       }.otherwise {
-        io.nasti.aw.valid := is_dirty
-        io.nasti.ar.valid := !is_dirty
         when(io.nasti.aw.fire) {
           state := sWriteBack
         }.elsewhen(io.nasti.ar.fire) {
@@ -190,8 +228,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
       when(hit || is_alloc_reg || io.cpu.abort) {
         state := sIdle
       }.otherwise {
-        io.nasti.aw.valid := is_dirty
-        io.nasti.ar.valid := !is_dirty
         when(io.nasti.aw.fire) {
           state := sWriteBack
         }.elsewhen(io.nasti.ar.fire) {
@@ -200,19 +236,16 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
       }
     }
     is(sWriteBack) {
-      io.nasti.w.valid := true.B
       when(write_wrap_out) {
         state := sWriteAck
       }
     }
     is(sWriteAck) {
-      io.nasti.b.ready := true.B
       when(io.nasti.b.fire) {
         state := sRefillReady
       }
     }
     is(sRefillReady) {
-      io.nasti.ar.valid := true.B
       when(io.nasti.ar.fire) {
         state := sRefill
       }
