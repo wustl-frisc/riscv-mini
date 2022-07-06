@@ -165,11 +165,9 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val is_dirty = v(idx_reg) && d(idx_reg)
 
   val sIdle = CacheStateFactory({
-    //printf("sIdle\n")
     is_idle := true.B
   })
   val sReadCache = CacheStateFactory({
-    //printf("sReadCache\n")
     is_read := true.B
       when(!hit){
         io.nasti.aw.valid := is_dirty
@@ -177,7 +175,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
       }
   })
   val sWriteCache = CacheStateFactory({
-    //printf("sWriteCache\n")
     is_write := true.B
     when(!(hit || is_alloc_reg || io.cpu.abort)) {
       io.nasti.aw.valid := is_dirty
@@ -185,40 +182,36 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     }
   })
   val sWriteBack = CacheStateFactory({
-    //printf("sWriteBack\n")
     io.nasti.w.valid := true.B
   })
   val sWriteAck = CacheStateFactory({
-    //printf("sWriteAck\n")
     io.nasti.b.ready := true.B
   })
   val sRefillReady = CacheStateFactory({
-    //printf("sRefillReady\n")
     io.nasti.ar.valid := true.B
   })
   val sRefill = CacheStateFactory({
-    //printf("sRefill\n")
     io.nasti.r.ready := true.B
     when(read_wrap_out) {
         is_alloc := true.B
       }
   })
 
-  val readReq = CacheToken(io.cpu.req.valid && !io.cpu.req.bits.mask.orR, "readReq")
-  val writeReq = CacheToken(io.cpu.req.valid && io.cpu.req.bits.mask.orR, "writeReq")
-  val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR, "readHit")
-  val writeHit = CacheToken(hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR, "writeHit")
-  val readFinish = CacheToken(hit && !io.cpu.req.valid, "readFinish")
-  val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire, "dirtyMiss")
-  val cleanMiss = CacheToken(!hit && io.nasti.ar.fire, "cleanMiss")
-  val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort, "writeFinish")
-  val dirtyMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.aw.fire, "dirtyMissAdv")
-  val cleanMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.ar.fire, "cleanMissAdv")
-  val ack = CacheToken(write_wrap_out, "ack")
-  val refillReady = CacheToken(io.nasti.b.fire, "refillReady")
-  val doRefill = CacheToken(io.nasti.ar.fire, "doRefill")
-  val refillFinish = CacheToken(read_wrap_out && !cpu_mask.orR, "refillFinish")
-  val doWrite = CacheToken(read_wrap_out && cpu_mask.orR, "doWrite")
+  val readReq = CacheToken(io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeReq = CacheToken(io.cpu.req.valid && io.cpu.req.bits.mask.orR)
+  val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeHit = CacheToken(hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR)
+  val readFinish = CacheToken(hit && !io.cpu.req.valid)
+  val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire)
+  val cleanMiss = CacheToken(!hit && io.nasti.ar.fire)
+  val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort)
+  val dirtyMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.aw.fire)
+  val cleanMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.ar.fire)
+  val ack = CacheToken(write_wrap_out)
+  val refillReady = CacheToken(io.nasti.b.fire)
+  val doRefill = CacheToken(io.nasti.ar.fire)
+  val refillFinish = CacheToken(read_wrap_out && !cpu_mask.orR)
+  val doWrite = CacheToken(read_wrap_out && cpu_mask.orR)
 
   val cacheNFA = (new NFA(sIdle))
     .addTransition((sIdle, readReq), sReadCache)
