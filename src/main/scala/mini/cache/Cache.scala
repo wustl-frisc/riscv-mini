@@ -208,7 +208,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val writeReq = CacheToken(io.cpu.req.valid && io.cpu.req.bits.mask.orR, "writeReq")
   val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR, "readHit")
   val writeHit = CacheToken(hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR, "writeHit")
-  val readFinish = CacheToken(!hit && !io.cpu.req.valid, "readFinish")
+  val readFinish = CacheToken(hit && !io.cpu.req.valid, "readFinish")
   val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire, "dirtyMiss")
   val cleanMiss = CacheToken(!hit && io.nasti.ar.fire, "cleanMiss")
   val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort, "writeFinish")
@@ -265,8 +265,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     case t: Token if (t == doWrite) => "doWrite"
     case other => other.toString
   }
-
-  //Emitter.emitGV(cacheDFA, namer)
 
   ChiselFSMBuilder(cacheNFA)
 }
