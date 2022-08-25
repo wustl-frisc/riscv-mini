@@ -205,8 +205,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire)
   val cleanMiss = CacheToken(!hit && io.nasti.ar.fire)
   val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort)
-  val dirtyMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.aw.fire)
-  val cleanMissAdv = CacheToken(!(hit || is_alloc_reg || io.cpu.abort) && io.nasti.ar.fire)
   val ack = CacheToken(write_wrap_out)
   val refillReady = CacheToken(io.nasti.b.fire)
   val doRefill = CacheToken(io.nasti.ar.fire)
@@ -222,42 +220,13 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     .addTransition((sReadCache, cleanMiss), sRefill)
     .addTransition((sReadCache, writeHit), sWriteCache)
     .addTransition((sWriteCache, writeFinish), sIdle)
-    .addTransition((sWriteCache, dirtyMissAdv), sWriteBack)
-    .addTransition((sWriteCache, cleanMissAdv), sRefill)
+    .addTransition((sWriteCache, dirtyMiss), sWriteBack)
+    .addTransition((sWriteCache, cleanMiss), sRefill)
     .addTransition((sWriteBack, ack), sWriteAck)
     .addTransition((sWriteAck, refillReady), sRefillReady)
     .addTransition((sRefillReady, doRefill), sRefill)
     .addTransition((sRefill, refillFinish), sIdle)
     .addTransition((sRefill, doWrite), sWriteCache)
-
-  val sError = CacheStateFactory({
-    printf("Error!\n")
-  })
-  val cacheDFA = new DFA(cacheNFA, sIdle)
-  val namer: Any => String = (element) => element match {
-    case s: State if (s == sIdle) => "sIdle"
-    case s: State if (s == sReadCache) => "sReadCache"
-    case s: State if (s == sWriteCache) => "sWriteCache"
-    case s: State if (s == sWriteBack) => "sWriteBack"
-    case s: State if (s == sWriteAck) => "sWriteAck"
-    case s: State if (s == sRefillReady) => "sRefillReady"
-    case s: State if (s == sRefill) => "sRefill"
-    case s: State if (s == sError) => "sError"
-    case t: Token if (t == readReq) => "readReq"
-    case t: Token if (t == writeReq) => "writeReq"
-    case t: Token if (t == readHit) => "readHit"
-    case t: Token if (t == writeHit) => "writeHit"
-    case t: Token if (t == readFinish) => "readFinish"
-    case t: Token if (t == dirtyMiss) => "dirtyMiss"
-    case t: Token if (t == cleanMiss) => "cleanMiss"
-    case t: Token if (t == writeFinish) => "writeFinish"
-    case t: Token if (t == ack) => "ack"
-    case t: Token if (t == refillReady) => "refillReady"
-    case t: Token if (t == doRefill) => "doRefill"
-    case t: Token if (t == refillFinish) => "refillFinish"
-    case t: Token if (t == doWrite) => "doWrite"
-    case other => other.toString
-  }
 
   ChiselFSMBuilder(cacheNFA)
 }
