@@ -162,7 +162,8 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   io.nasti.b.ready := false.B
 
   // Cache FSM
-  val is_dirty = v(idx_reg) && d(idx_reg)
+  val is_dirty = Wire(Bool())
+  is_dirty := v(idx_reg) && d(idx_reg)
 
   val sIdle = CacheStateFactory({
     is_idle := true.B
