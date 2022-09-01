@@ -108,7 +108,7 @@ class Tile(val coreParams: CoreConfig, val nastiParams: NastiBundleParameters, v
   val io = IO(new TileIO(coreParams.xlen, nastiParams))
   val core = Module(new Core(coreParams))
   val icache = Module(new Cache(cacheParams, nastiParams, coreParams.xlen))
-  val dcache = Module(new Cache(cacheParams, nastiParams, coreParams.xlen))
+  val dcache = Module(new DataCache(cacheParams, nastiParams, coreParams.xlen))
   val arb = Module(new MemArbiter(nastiParams))
 
   io.host <> core.io.host

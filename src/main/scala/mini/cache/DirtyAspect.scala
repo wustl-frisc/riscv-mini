@@ -12,7 +12,7 @@ import chisel3.experimental.BaseModule
 object Features {
   val dirty = InjectingAspect(
     {top: Tile => Seq(top.dcache)},
-    {thisJoinpoint: Cache =>  {
+    {thisJoinpoint: DataCache =>  {
         val imageMem = Seq.fill(thisJoinpoint.nWords)(SyncReadMem(thisJoinpoint.nSets, Vec(thisJoinpoint.wBytes, UInt(8.W))))
         val idata = Cat((imageMem.map(_.read(thisJoinpoint.idx, thisJoinpoint.ren).asUInt)).reverse)
         when(thisJoinpoint.wen && thisJoinpoint.is_alloc) {

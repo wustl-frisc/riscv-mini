@@ -8,35 +8,8 @@ import chisel3.util._
 import junctions._
 import foam._
 
-class CacheReq(addrWidth: Int, dataWidth: Int) extends Bundle {
-  val addr = UInt(addrWidth.W)
-  val data = UInt(dataWidth.W)
-  val mask = UInt((dataWidth / 8).W)
-}
 
-class CacheResp(dataWidth: Int) extends Bundle {
-  val data = UInt(dataWidth.W)
-}
-
-class CacheIO(addrWidth: Int, dataWidth: Int) extends Bundle {
-  val abort = Input(Bool())
-  val req = Flipped(Valid(new CacheReq(addrWidth, dataWidth)))
-  val resp = Valid(new CacheResp(dataWidth))
-}
-
-class CacheModuleIO(nastiParams: NastiBundleParameters, addrWidth: Int, dataWidth: Int) extends Bundle {
-  val cpu = new CacheIO(addrWidth, dataWidth)
-  val nasti = new NastiBundle(nastiParams)
-}
-
-case class CacheConfig(nWays: Int, nSets: Int, blockBytes: Int)
-
-class MetaData(tagLength: Int) extends Bundle {
-  val tag = UInt(tagLength.W)
-}
-
-
-class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
+class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
   val nSets = p.nSets
   val bBytes = p.blockBytes
@@ -53,6 +26,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   // memory
   val v = RegInit(0.U(nSets.W))
+  val d = RegInit(0.U(nSets.W))
   val metaMem = SyncReadMem(nSets, new MetaData(tlen))
   val dataMem = Seq.fill(nWords)(SyncReadMem(nSets, Vec(wBytes, UInt(8.W))))
 
@@ -63,19 +37,20 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   // Counters
   require(dataBeats > 0)
   val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, dataBeats)
+  val (write_count, write_wrap_out) = Counter(io.nasti.w.fire, dataBeats)
 
   val is_idle = Wire(Bool())
   is_idle := false.B
   val is_read = Wire(Bool())
   is_read := false.B
+  val is_write = Wire(Bool())
+  is_write := false.B
   val is_alloc = Wire(Bool()) //state === sRefill && read_wrap_out
   is_alloc := false.B
   val is_alloc_reg = RegNext(is_alloc)
 
   val hit = Wire(Bool())
-  val wen = Wire(Bool())
-  wen := is_alloc
-
+  val wen = is_write && (hit || is_alloc_reg) && !io.cpu.abort || is_alloc
   val ren = !wen && (is_idle || is_read) && io.cpu.req.valid
   val ren_reg = RegNext(ren)
 
@@ -106,13 +81,20 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val wmeta = Wire(new MetaData(tlen))
   wmeta.tag := tag_reg
 
-  val wmask = -1.S
-  val wdata = if (refill_buf.size == 1) io.nasti.r.bits.data
+  val wmask = Mux(!is_alloc, (cpu_mask << Cat(off_reg, 0.U(byteOffsetBits.W))).zext, (-1).S)
+  val wdata = Mux(
+    !is_alloc,
+    Fill(nWords, cpu_data),
+    if (refill_buf.size == 1) io.nasti.r.bits.data
     else Cat(io.nasti.r.bits.data, Cat(refill_buf.init.reverse))
+  )
 
   when(wen) {
     v := v.bitSet(idx_reg, true.B)
-    metaMem.write(idx_reg, wmeta)
+    d := d.bitSet(idx_reg, !is_alloc)
+    when(is_alloc) {
+      metaMem.write(idx_reg, wmeta)
+    }
     dataMem.zipWithIndex.foreach {
       case (mem, i) =>
         val data = VecInit.tabulate(wBytes)(k => wdata(i * xlen + (k + 1) * 8 - 1, i * xlen + k * 8))
@@ -137,16 +119,16 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   // write addr
   io.nasti.aw.bits := NastiAddressBundle(nasti)(
     0.U,
-    0.U,
-    0.U,
-    0.U
+    (Cat(rmeta.tag, idx_reg) << blen.U).asUInt,
+    log2Up(nasti.dataBits / 8).U,
+    (dataBeats - 1).U
   )
   io.nasti.aw.valid := false.B
   // write data
   io.nasti.w.bits := NastiWriteDataBundle(nasti)(
-    0.U,
+    VecInit.tabulate(dataBeats)(i => read((i + 1) * nasti.dataBits - 1, i * nasti.dataBits))(write_count),
     None,
-    false.B
+    write_wrap_out
   )
   io.nasti.w.valid := false.B
   // write resp
@@ -154,16 +136,33 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   // Cache FSM
   val is_dirty = Wire(Bool())
-  is_dirty := false.B
+  is_dirty := v(idx_reg) && d(idx_reg)
 
   val sIdle = CacheStateFactory({
     is_idle := true.B
   })
   val sReadCache = CacheStateFactory({
     is_read := true.B
-    when(!hit){
+      when(!hit){
+        io.nasti.aw.valid := is_dirty
+        io.nasti.ar.valid := !is_dirty
+      }
+  })
+  val sWriteCache = CacheStateFactory({
+    is_write := true.B
+    when(!(hit || is_alloc_reg || io.cpu.abort)) {
+      io.nasti.aw.valid := is_dirty
       io.nasti.ar.valid := !is_dirty
     }
+  })
+  val sWriteBack = CacheStateFactory({
+    io.nasti.w.valid := true.B
+  })
+  val sWriteAck = CacheStateFactory({
+    io.nasti.b.ready := true.B
+  })
+  val sRefillReady = CacheStateFactory({
+    io.nasti.ar.valid := true.B
   })
   val sRefill = CacheStateFactory({
     io.nasti.r.ready := true.B
@@ -173,17 +172,35 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   })
 
   val readReq = CacheToken(io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeReq = CacheToken(io.cpu.req.valid && io.cpu.req.bits.mask.orR)
   val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
+  val writeHit = CacheToken(hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR)
   val readFinish = CacheToken(hit && !io.cpu.req.valid)
+  val dirtyMiss = CacheToken(!hit && io.nasti.aw.fire)
   val cleanMiss = CacheToken(!hit && io.nasti.ar.fire)
+  val writeFinish = CacheToken(hit || is_alloc_reg || io.cpu.abort)
+  val ack = CacheToken(write_wrap_out)
+  val refillReady = CacheToken(io.nasti.b.fire)
+  val doRefill = CacheToken(io.nasti.ar.fire)
   val refillFinish = CacheToken(read_wrap_out && !cpu_mask.orR)
+  val doWrite = CacheToken(read_wrap_out && cpu_mask.orR)
 
   val cacheNFA = (new NFA(sIdle))
     .addTransition((sIdle, readReq), sReadCache)
+    .addTransition((sIdle, writeReq), sWriteCache)
     .addTransition((sReadCache, readHit), sReadCache)
     .addTransition((sReadCache, readFinish), sIdle)
+    .addTransition((sReadCache, dirtyMiss), sWriteBack)
     .addTransition((sReadCache, cleanMiss), sRefill)
+    .addTransition((sReadCache, writeHit), sWriteCache)
+    .addTransition((sWriteCache, writeFinish), sIdle)
+    .addTransition((sWriteCache, dirtyMiss), sWriteBack)
+    .addTransition((sWriteCache, cleanMiss), sRefill)
+    .addTransition((sWriteBack, ack), sWriteAck)
+    .addTransition((sWriteAck, refillReady), sRefillReady)
+    .addTransition((sRefillReady, doRefill), sRefill)
     .addTransition((sRefill, refillFinish), sIdle)
+    .addTransition((sRefill, doWrite), sWriteCache)
 
   ChiselFSMBuilder(cacheNFA)
 }

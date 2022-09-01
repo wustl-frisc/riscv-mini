@@ -141,7 +141,7 @@ object CacheTesterMemState extends ChiselEnum {
   val sMemIdle, sMemWrite, sMemWrAck, sMemRead = Value
 }
 
-class CacheTester(cache: => Cache) extends BasicTester {
+class CacheTester(cache: => DataCache) extends BasicTester {
   /* Target Design */
   val dut = Module(cache)
   // extract parameters from dut
@@ -410,12 +410,12 @@ class CacheTests extends AnyFlatSpec with ChiselScalatestTester {
   val p = MiniConfig()
 
   "Cache" should "pass with verilator" in {
-    test(new CacheTester(new Cache(p.cache, p.nasti, p.core.xlen)))
+    test(new CacheTester(new DataCache(p.cache, p.nasti, p.core.xlen)))
       .withAnnotations(Seq(VerilatorBackendAnnotation))
       .runUntilStop()
   }
 
   "Cache" should "pass with treadle" in {
-    test(new CacheTester(new Cache(p.cache, p.nasti, p.core.xlen))).runUntilStop()
+    test(new CacheTester(new DataCache(p.cache, p.nasti, p.core.xlen))).runUntilStop()
   }
 }
