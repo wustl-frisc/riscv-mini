@@ -35,11 +35,8 @@ class MetaData(tagLength: Int) extends Bundle {
   val tag = UInt(tagLength.W)
 }
 
-
-class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
-  // local parameters
-  val nSets = p.nSets
-  val bBytes = p.blockBytes
+class CacheParams(val nSets: Int, blockBytes: Int, xlen: Int, dataBits: Int) {
+  val bBytes = blockBytes
   val bBits = bBytes << 3
   val blen = log2Ceil(bBytes)
   val slen = log2Ceil(nSets)
@@ -47,22 +44,28 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val nWords = bBits / xlen
   val wBytes = xlen / 8
   val byteOffsetBits = log2Ceil(wBytes)
-  val dataBeats = bBits / nasti.dataBits
+  val dataBeats = bBits / dataBits
+}
+
+
+class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
+  // local parameters
+  val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti.dataBits)
 
   val io = IO(new CacheModuleIO(nasti, addrWidth = xlen, dataWidth = xlen))
 
   // memory
-  val v = RegInit(0.U(nSets.W))
-  val metaMem = SyncReadMem(nSets, new MetaData(tlen))
-  val dataMem = Seq.fill(nWords)(SyncReadMem(nSets, Vec(wBytes, UInt(8.W))))
+  val v = RegInit(0.U(p.nSets.W))
+  val metaMem = SyncReadMem(p.nSets, new MetaData(p.tlen))
+  val dataMem = Seq.fill(p.nWords)(SyncReadMem(p.nSets, Vec(p.wBytes, UInt(8.W))))
 
   val addr_reg = Reg(chiselTypeOf(io.cpu.req.bits.addr))
   val cpu_data = Reg(chiselTypeOf(io.cpu.req.bits.data))
   val cpu_mask = Reg(chiselTypeOf(io.cpu.req.bits.mask))
 
   // Counters
-  require(dataBeats > 0)
-  val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, dataBeats)
+  require(p.dataBeats > 0)
+  val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, p.dataBeats)
 
   val is_alloc = Wire(Bool()) //state === sRefill && read_wrap_out
   is_alloc := false.B
@@ -77,21 +80,21 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val ren_reg = RegNext(ren)
 
   val addr = io.cpu.req.bits.addr
-  val idx = addr(slen + blen - 1, blen)
-  val tag_reg = addr_reg(xlen - 1, slen + blen)
-  val idx_reg = addr_reg(slen + blen - 1, blen)
-  val off_reg = addr_reg(blen - 1, byteOffsetBits)
+  val idx = addr(p.slen + p.blen - 1, p.blen)
+  val tag_reg = addr_reg(xlen - 1, p.slen + p.blen)
+  val idx_reg = addr_reg(p.slen + p.blen - 1, p.blen)
+  val off_reg = addr_reg(p.blen - 1, p.byteOffsetBits)
 
   val rmeta = metaMem.read(idx, ren)
   val rdata = Cat((dataMem.map(_.read(idx, ren).asUInt)).reverse)
   val rdata_buf = RegEnable(rdata, ren_reg)
-  val refill_buf = Reg(Vec(dataBeats, UInt(nasti.dataBits.W)))
+  val refill_buf = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
   val read = Mux(is_alloc_reg, refill_buf.asUInt, Mux(ren_reg, rdata, rdata_buf))
 
   hit := v(idx_reg) && rmeta.tag === tag_reg
 
   // Read Mux
-  io.cpu.resp.bits.data := VecInit.tabulate(nWords)(i => read((i + 1) * xlen - 1, i * xlen))(off_reg)
+  io.cpu.resp.bits.data := VecInit.tabulate(p.nWords)(i => read((i + 1) * xlen - 1, i * xlen))(off_reg)
   io.cpu.resp.valid := is_alloc_reg && !cpu_mask.orR
 
   when(io.cpu.resp.valid) {
@@ -100,7 +103,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     cpu_mask := io.cpu.req.bits.mask
   }
 
-  val wmeta = Wire(new MetaData(tlen))
+  val wmeta = Wire(new MetaData(p.tlen))
   wmeta.tag := tag_reg
 
   val wmask = -1.S
@@ -112,17 +115,17 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     metaMem.write(idx_reg, wmeta)
     dataMem.zipWithIndex.foreach {
       case (mem, i) =>
-        val data = VecInit.tabulate(wBytes)(k => wdata(i * xlen + (k + 1) * 8 - 1, i * xlen + k * 8))
-        mem.write(idx_reg, data, wmask((i + 1) * wBytes - 1, i * wBytes).asBools())
+        val data = VecInit.tabulate(p.wBytes)(k => wdata(i * xlen + (k + 1) * 8 - 1, i * xlen + k * 8))
+        mem.write(idx_reg, data, wmask((i + 1) * p.wBytes - 1, i * p.wBytes).asBools())
         mem.suggestName(s"dataMem_${i}")
     }
   }
 
   io.nasti.ar.bits := NastiAddressBundle(nasti)(
     0.U,
-    (Cat(tag_reg, idx_reg) << blen.U).asUInt,
+    (Cat(tag_reg, idx_reg) << p.blen.U).asUInt,
     log2Up(nasti.dataBits / 8).U,
-    (dataBeats - 1).U
+    (p.dataBeats - 1).U
   )
   io.nasti.ar.valid := false.B
   // read data
