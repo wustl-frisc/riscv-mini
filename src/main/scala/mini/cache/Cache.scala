@@ -64,10 +64,6 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   require(dataBeats > 0)
   val (read_count, read_wrap_out) = Counter(io.nasti.r.fire, dataBeats)
 
-  val is_idle = Wire(Bool())
-  is_idle := false.B
-  val is_read = Wire(Bool())
-  is_read := false.B
   val is_alloc = Wire(Bool()) //state === sRefill && read_wrap_out
   is_alloc := false.B
   val is_alloc_reg = RegNext(is_alloc)
@@ -76,7 +72,8 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val wen = Wire(Bool())
   wen := is_alloc
 
-  val ren = !wen && (is_idle || is_read) && io.cpu.req.valid
+  val ren = Wire(Bool()) 
+  ren := false.B
   val ren_reg = RegNext(ren)
 
   val addr = io.cpu.req.bits.addr
@@ -95,7 +92,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   // Read Mux
   io.cpu.resp.bits.data := VecInit.tabulate(nWords)(i => read((i + 1) * xlen - 1, i * xlen))(off_reg)
-  io.cpu.resp.valid := is_idle || is_read && hit || is_alloc_reg && !cpu_mask.orR
+  io.cpu.resp.valid := is_alloc_reg && !cpu_mask.orR
 
   when(io.cpu.resp.valid) {
     addr_reg := addr
@@ -157,11 +154,15 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   is_dirty := false.B
 
   val sIdle = CacheStateFactory({
-    is_idle := true.B
+    ren := !wen && io.cpu.req.valid
+    io.cpu.resp.valid := true.B
   })
   val sReadCache = CacheStateFactory({
-    is_read := true.B
-    when(!hit){
+    ren := !wen && io.cpu.req.valid
+
+    when(hit){
+      io.cpu.resp.valid := true.B
+    }.otherwise {
       io.nasti.ar.valid := !is_dirty
     }
   })
