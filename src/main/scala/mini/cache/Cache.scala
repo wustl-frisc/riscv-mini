@@ -54,6 +54,25 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   val io = IO(new CacheModuleIO(nasti, addrWidth = xlen, dataWidth = xlen))
 
+  val sIdle = new CacheState("sIdle")
+  val sReadCache = new CacheState("sReadCache")
+  val sRefill = new CacheState("sRefill")
+
+  val readReq = CacheToken("readReq")
+  val readHit = CacheToken("readHit")
+  val readFinish = CacheToken("readFinish")
+  val cleanMiss = CacheToken("cleanMiss")
+  val refillFinish = CacheToken("refillFinish")
+
+  val cacheNFA = (new NFA(sIdle))
+    .addTransition((sIdle, readReq), sReadCache)
+    .addTransition((sReadCache, readHit), sReadCache)
+    .addTransition((sReadCache, readFinish), sIdle)
+    .addTransition((sReadCache, cleanMiss), sRefill)
+    .addTransition((sRefill, refillFinish), sIdle)
+
+  val (tokenMap, stateMap) = ChiselFSMBuilder(cacheNFA)
+
   // memory
   val v = RegInit(0.U(p.nSets.W))
   val metaMem = SyncReadMem(p.nSets, new MetaData(p.tlen))
@@ -156,11 +175,12 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val is_dirty = Wire(Bool())
   is_dirty := false.B
 
-  val sIdle = CacheStateFactory({
+  when(stateMap("sIdle")) {
     ren := !wen && io.cpu.req.valid
     io.cpu.resp.valid := true.B
-  })
-  val sReadCache = CacheStateFactory({
+  }
+
+  when(stateMap("sReadCache")) {
     ren := !wen && io.cpu.req.valid
 
     when(hit){
@@ -168,26 +188,18 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     }.otherwise {
       io.nasti.ar.valid := !is_dirty
     }
-  })
-  val sRefill = CacheStateFactory({
+  }
+
+  when(stateMap("sRefill")) {
     io.nasti.r.ready := true.B
     when(read_wrap_out) {
         is_alloc := true.B
       }
-  })
+  }
 
-  val readReq = CacheToken(io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
-  val readHit = CacheToken(hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR)
-  val readFinish = CacheToken(hit && !io.cpu.req.valid)
-  val cleanMiss = CacheToken(!hit && io.nasti.ar.fire)
-  val refillFinish = CacheToken(read_wrap_out && !cpu_mask.orR)
-
-  val cacheNFA = (new NFA(sIdle))
-    .addTransition((sIdle, readReq), sReadCache)
-    .addTransition((sReadCache, readHit), sReadCache)
-    .addTransition((sReadCache, readFinish), sIdle)
-    .addTransition((sReadCache, cleanMiss), sRefill)
-    .addTransition((sRefill, refillFinish), sIdle)
-
-  ChiselFSMBuilder(cacheNFA)
+  tokenMap("readReq") := io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  tokenMap("readHit") := hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  tokenMap("readFinish") := hit && !io.cpu.req.valid
+  tokenMap("cleanMiss") := !hit && io.nasti.ar.fire
+  tokenMap("refillFinish") := read_wrap_out && !cpu_mask.orR
 }
