@@ -71,7 +71,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     .addTransition((sReadCache, cleanMiss), sRefill)
     .addTransition((sRefill, refillFinish), sIdle)
 
-  val (tokenMap, stateMap) = ChiselFSMBuilder(cacheNFA)
+  val fsmHandle = ChiselFSMBuilder(cacheNFA)
 
   // memory
   val v = RegInit(0.U(p.nSets.W))
@@ -175,12 +175,12 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val is_dirty = Wire(Bool())
   is_dirty := false.B
 
-  when(stateMap("sIdle")) {
+  when(fsmHandle("sIdle")) {
     ren := !wen && io.cpu.req.valid
     io.cpu.resp.valid := true.B
   }
 
-  when(stateMap("sReadCache")) {
+  when(fsmHandle("sReadCache")) {
     ren := !wen && io.cpu.req.valid
 
     when(hit){
@@ -190,16 +190,16 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     }
   }
 
-  when(stateMap("sRefill")) {
+  when(fsmHandle("sRefill")) {
     io.nasti.r.ready := true.B
     when(read_wrap_out) {
         is_alloc := true.B
       }
   }
 
-  tokenMap("readReq") := io.cpu.req.valid && !io.cpu.req.bits.mask.orR
-  tokenMap("readHit") := hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR
-  tokenMap("readFinish") := hit && !io.cpu.req.valid
-  tokenMap("cleanMiss") := !hit && io.nasti.ar.fire
-  tokenMap("refillFinish") := read_wrap_out && !cpu_mask.orR
+  fsmHandle("readReq") := io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  fsmHandle("readHit") := hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  fsmHandle("readFinish") := hit && !io.cpu.req.valid
+  fsmHandle("cleanMiss") := !hit && io.nasti.ar.fire
+  fsmHandle("refillFinish") := read_wrap_out && !cpu_mask.orR
 }

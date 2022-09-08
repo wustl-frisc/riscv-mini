@@ -64,7 +64,7 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
     .addTransition((sRefill, refillFinish), sIdle)
     .addTransition((sRefill, doWrite), sWriteCache)
 
-  val (tokenMap, stateMap) = ChiselFSMBuilder(cacheNFA)
+  val fsmHandle= ChiselFSMBuilder(cacheNFA)
 
   // memory
   val v = RegInit(0.U(nSets.W))
@@ -180,11 +180,11 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
   val is_dirty = Wire(Bool())
   is_dirty := v(idx_reg) && d(idx_reg)
 
-  when(stateMap("sIdle")) {
+  when(fsmHandle("sIdle")) {
     is_idle := true.B
   }
 
-  when(stateMap("sReadCache")) {
+  when(fsmHandle("sReadCache")) {
     is_read := true.B
       when(!hit){
         io.nasti.aw.valid := is_dirty
@@ -192,7 +192,7 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
       }
   }
 
-  when(stateMap("sWriteCache")) {
+  when(fsmHandle("sWriteCache")) {
     is_write := true.B
     when(!(hit || is_alloc_reg || io.cpu.abort)) {
       io.nasti.aw.valid := is_dirty
@@ -200,36 +200,36 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
     }
   }
 
-  when(stateMap("sWriteBack")) {
+  when(fsmHandle("sWriteBack")) {
     io.nasti.w.valid := true.B
   }
 
-  when(stateMap("sWriteAck")) {
+  when(fsmHandle("sWriteAck")) {
     io.nasti.b.ready := true.B
   }
 
-  when(stateMap("sRefillReady")) {
+  when(fsmHandle("sRefillReady")) {
     io.nasti.ar.valid := true.B
   }
 
-  when(stateMap("sRefill")) {
+  when(fsmHandle("sRefill")) {
     io.nasti.r.ready := true.B
     when(read_wrap_out) {
         is_alloc := true.B
       }
   }
 
-  tokenMap("readReq") := io.cpu.req.valid && !io.cpu.req.bits.mask.orR
-  tokenMap("writeReq") := io.cpu.req.valid && io.cpu.req.bits.mask.orR
-  tokenMap("readHit") := hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR
-  tokenMap("writeHit") := hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR
-  tokenMap("readFinish") := hit && !io.cpu.req.valid
-  tokenMap("dirtyMiss") := !hit && io.nasti.aw.fire
-  tokenMap("cleanMiss") := !hit && io.nasti.ar.fire
-  tokenMap("writeFinish") := hit || is_alloc_reg || io.cpu.abort
-  tokenMap("ack") := write_wrap_out
-  tokenMap("refillReady") := io.nasti.b.fire
-  tokenMap("doRefill") := io.nasti.ar.fire
-  tokenMap("refillFinish") := read_wrap_out && !cpu_mask.orR
-  tokenMap("doWrite") := read_wrap_out && cpu_mask.orR
+  fsmHandle("readReq") := io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  fsmHandle("writeReq") := io.cpu.req.valid && io.cpu.req.bits.mask.orR
+  fsmHandle("readHit") := hit && io.cpu.req.valid && !io.cpu.req.bits.mask.orR
+  fsmHandle("writeHit") := hit && io.cpu.req.valid && io.cpu.req.bits.mask.orR
+  fsmHandle("readFinish") := hit && !io.cpu.req.valid
+  fsmHandle("dirtyMiss") := !hit && io.nasti.aw.fire
+  fsmHandle("cleanMiss") := !hit && io.nasti.ar.fire
+  fsmHandle("writeFinish") := hit || is_alloc_reg || io.cpu.abort
+  fsmHandle("ack") := write_wrap_out
+  fsmHandle("refillReady") := io.nasti.b.fire
+  fsmHandle("doRefill") := io.nasti.ar.fire
+  fsmHandle("refillFinish") := read_wrap_out && !cpu_mask.orR
+  fsmHandle("doWrite") := read_wrap_out && cpu_mask.orR
 }
