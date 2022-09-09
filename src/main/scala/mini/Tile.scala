@@ -112,9 +112,9 @@ class Tile(val coreParams: CoreConfig, val nastiParams: NastiBundleParameters, v
   val arb = Module(new MemArbiter(nastiParams))
 
   io.host <> core.io.host
-  core.io.icache <> icache.io.cpu
+  core.io.icache <> icache.cpu
   core.io.dcache <> dcache.io.cpu
-  arb.io.icache <> icache.io.nasti
+  arb.io.icache <> icache.mainMem
   arb.io.dcache <> dcache.io.nasti
   io.nasti <> arb.io.nasti
 }
