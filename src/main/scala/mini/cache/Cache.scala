@@ -73,19 +73,27 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val sRefill = new CacheState("sRefill")
 
   val readReq = CacheToken("readReq")
-  val readHit = CacheToken("readHit")
   val readFinish = CacheToken("readFinish")
   val cleanMiss = CacheToken("cleanMiss")
   val refillFinish = CacheToken("refillFinish")
 
   val cacheNFA = (new NFA(sIdle))
     .addTransition((sIdle, readReq), sReadCache)
-    .addTransition((sReadCache, readHit), sReadCache)
-    .addTransition((sReadCache, readFinish), sIdle)
     .addTransition((sReadCache, cleanMiss), sRefill)
+    .addTransition((sReadCache, readFinish), sIdle)
     .addTransition((sRefill, refillFinish), sIdle)
 
   val fsmHandle = ChiselFSMBuilder(cacheNFA)
+
+
+  val addr = Reg(UInt(xlen.W))
+  val idx = addr(p.indexLen + p.offsetLen - 1, p.offsetLen)
+  val tag = addr(xlen - 1, p.indexLen + p.offsetLen)
+  val offset = addr(p.offsetLen - 1, p.byteOffsetBits)
+
+  val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
+  val bufferTag = Reg(UInt(p.tlen.W))
+  val hit = tag === bufferTag
 
   //generate frontend
   frontend()
@@ -95,38 +103,52 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   private def frontend() = {
 
-    val addr = cpu.req.bits.addr
+    addr := cpu.req.bits.addr
 
-    // Read Mux
-    cpu.resp.bits.data := 0.U
+    // Resp setup
+    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
+    val reqData = cacheLine(offset)
+    cpu.resp.bits.data := reqData
     cpu.resp.valid := false.B
 
     // Cache FSM
     when(fsmHandle("sIdle")) {
-      cpu.resp.valid := false.B
+      printf("sIdle\n")
     }
 
     when(fsmHandle("sReadCache")) {
-      cpu.resp.valid := true.B
+      when(hit) {
+        cpu.resp.valid := true.B
+      }
     }
 
     fsmHandle("readReq") := cpu.req.valid
-    fsmHandle("readHit") := cpu.req.valid
     fsmHandle("readFinish") := !cpu.req.valid
+    fsmHandle("cleanMiss") := cpu.req.valid
   }
 
   private def backend() = {
 
+    require(p.dataBeats > 0)
+    val (read_count, read_wrap_out) = Counter(mainMem.r.fire, p.dataBeats)
+
     mainMem.ar.bits := NastiAddressBundle(nasti)(
-    0.U,
-    0.U,
-    0.U,
-    0.U,
+      0.U,
+      (Cat(tag, idx) << p.offsetLen.U).asUInt,
+      log2Up(nasti.dataBits / 8).U,
+      (p.dataBeats - 1).U
     )
 
+    //read address
     mainMem.ar.valid := false.B
+
     // read data
     mainMem.r.ready := false.B
+    when(mainMem.r.fire) {
+      buffer(read_count) := mainMem.r.bits.data
+      bufferTag := tag
+    }
+
     // write addr
     mainMem.aw.bits := NastiAddressBundle(nasti)(
       0.U,
@@ -144,5 +166,20 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     mainMem.w.valid := false.B
     // write resp
     mainMem.b.ready := false.B
+
+    when(fsmHandle("sReadCache")) {
+      printf("sReadCache\n")
+      when(!hit) {
+        mainMem.ar.valid := true.B
+      }
+    }
+
+    when(fsmHandle("sRefill")) {
+      printf("sRefill\n")
+      mainMem.r.ready := true.B
+    }
+
+    fsmHandle("cleanMiss") := mainMem.ar.fire
+    fsmHandle("refillFinish") := read_wrap_out
   }
 }
