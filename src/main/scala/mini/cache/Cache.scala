@@ -68,32 +68,20 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val cpu = IO(new CacheIO(xlen, xlen))
   val mainMem = IO(new NastiBundle(nasti))
 
-  val sIdle = new CacheState("sIdle")
-  val sReadCache = new CacheState("sReadCache")
-  val sRefill = new CacheState("sRefill")
-
-  val readReq = CacheToken("readReq")
-  val readFinish = CacheToken("readFinish")
-  val cleanMiss = CacheToken("cleanMiss")
-  val refillFinish = CacheToken("refillFinish")
-
-  val cacheNFA = (new NFA(sIdle))
-    .addTransition((sIdle, readReq), sReadCache)
-    .addTransition((sReadCache, cleanMiss), sRefill)
-    .addTransition((sReadCache, readFinish), sIdle)
-    .addTransition((sRefill, refillFinish), sIdle)
-
-  val fsmHandle = ChiselFSMBuilder(cacheNFA)
-
-
+  //this section is for things needed by the frontend and the backend
+  //split the address up into the parts we need
   val addr = Reg(UInt(xlen.W))
-  val idx = addr(p.indexLen + p.offsetLen - 1, p.offsetLen)
   val tag = addr(xlen - 1, p.indexLen + p.offsetLen)
   val offset = addr(p.offsetLen - 1, p.byteOffsetBits)
 
+  //create a buffer for reads from main memory, also store the tag
+  val v = RegInit(false.B)
   val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
   val bufferTag = Reg(UInt(p.tlen.W))
-  val hit = tag === bufferTag
+  val hit = tag === bufferTag && v
+
+  //generate the FSM
+  val fsmHandle = fsm()
 
   //generate frontend
   frontend()
@@ -101,19 +89,41 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   //generate backend
   backend()
 
-  private def frontend() = {
+  private def fsm() = {
+    val sIdle = new CacheState("sIdle")
+    val sReadCache = new CacheState("sReadCache")
+    val sRefill = new CacheState("sRefill")
 
+    val readReq = CacheToken("readReq")
+    val readFinish = CacheToken("readFinish")
+    val cleanMiss = CacheToken("cleanMiss")
+    val refillFinish = CacheToken("refillFinish")
+
+    val cacheNFA = (new NFA(sIdle))
+      .addTransition((sIdle, readReq), sReadCache)
+      .addTransition((sReadCache, readFinish), sIdle)
+      .addTransition((sReadCache, cleanMiss), sRefill)
+      .addTransition((sRefill, refillFinish), sIdle)
+
+    ChiselFSMBuilder(cacheNFA)
+  }
+
+  private def frontend() = {
+    //get the address from the cpu
     addr := cpu.req.bits.addr
 
-    // Resp setup
-    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
+    // Take the cache line and split it into its words, get the word we want
+    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen)) 
     val reqData = cacheLine(offset)
+
+    //give the CPU the data when it's ready
+    cpu.resp.bits.data := 0.U(xlen.W)
     cpu.resp.bits.data := reqData
     cpu.resp.valid := false.B
 
     // Cache FSM
     when(fsmHandle("sIdle")) {
-      printf("sIdle\n")
+      cpu.resp.valid := true.B
     }
 
     when(fsmHandle("sReadCache")) {
@@ -122,19 +132,17 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
       }
     }
 
-    fsmHandle("readReq") := cpu.req.valid
-    fsmHandle("readFinish") := !cpu.req.valid
-    fsmHandle("cleanMiss") := cpu.req.valid
+    fsmHandle("readReq") := cpu.req.valid //leave idle when an incoming request happens
+    fsmHandle("readFinish") := !cpu.req.valid && hit //leave read when we've got the right data, but the cpu is ready to move on
   }
 
   private def backend() = {
-
     require(p.dataBeats > 0)
     val (read_count, read_wrap_out) = Counter(mainMem.r.fire, p.dataBeats)
 
     mainMem.ar.bits := NastiAddressBundle(nasti)(
       0.U,
-      (Cat(tag, idx) << p.offsetLen.U).asUInt,
+      (tag << p.offsetLen.U).asUInt,
       log2Up(nasti.dataBits / 8).U,
       (p.dataBeats - 1).U
     )
@@ -168,18 +176,21 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     mainMem.b.ready := false.B
 
     when(fsmHandle("sReadCache")) {
-      printf("sReadCache\n")
+      //when the data is stale, we go get some new fresh data
       when(!hit) {
         mainMem.ar.valid := true.B
       }
     }
 
     when(fsmHandle("sRefill")) {
-      printf("sRefill\n")
+      //let the main memory we're ready
       mainMem.r.ready := true.B
+      when(read_wrap_out) {
+        v := true.B
+      }
     }
 
-    fsmHandle("cleanMiss") := mainMem.ar.fire
-    fsmHandle("refillFinish") := read_wrap_out
+    fsmHandle("cleanMiss") := mainMem.ar.fire //leave the read state when mem has recieved our address
+    fsmHandle("refillFinish") := read_wrap_out // leave the refill state when we've got our data
   }
 }

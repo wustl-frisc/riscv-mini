@@ -8,6 +8,10 @@ import chisel3.util._
 import junctions._
 import foam._
 
+class CacheModuleIO(nastiParams: NastiBundleParameters, addrWidth: Int, dataWidth: Int) extends Bundle {
+  val cpu = new CacheIO(addrWidth, dataWidth)
+  val nasti = new NastiBundle(nastiParams)
+}
 
 class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
@@ -64,7 +68,7 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
     .addTransition((sRefill, refillFinish), sIdle)
     .addTransition((sRefill, doWrite), sWriteCache)
 
-  val fsmHandle= ChiselFSMBuilder(cacheNFA)
+  val fsmHandle = ChiselFSMBuilder(cacheNFA)
 
   // memory
   val v = RegInit(0.U(nSets.W))
