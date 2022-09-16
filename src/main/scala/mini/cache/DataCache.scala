@@ -13,6 +13,10 @@ class CacheModuleIO(nastiParams: NastiBundleParameters, addrWidth: Int, dataWidt
   val nasti = new NastiBundle(nastiParams)
 }
 
+class MetaData(tagLength: Int) extends Bundle {
+  val tag = UInt(tagLength.W)
+}
+
 class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
   val nSets = p.nSets
@@ -96,7 +100,7 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
   val is_alloc_reg = RegNext(is_alloc)
 
   val hit = Wire(Bool())
-  val wen = is_write && (hit || is_alloc_reg) && !io.cpu.abort || is_alloc
+  val wen = (is_write && hit) || (is_alloc_reg && !io.cpu.abort) || is_alloc
   val ren = !wen && (is_idle || is_read) && io.cpu.req.valid
   val ren_reg = RegNext(ren)
 
