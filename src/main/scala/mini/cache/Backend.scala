@@ -7,8 +7,6 @@ import junctions._
 import foam._
 
 class Backend(cache: Cache, fsmHandle: ChiselFSMHandle) {
-  require(cache.p.dataBeats > 0)
-  private val (read_count, read_wrap_out) = Counter(cache.mainMem.r.fire, cache.p.dataBeats)
   //read address
   cache.mainMem.ar.valid := false.B
   //read data
@@ -21,7 +19,10 @@ class Backend(cache: Cache, fsmHandle: ChiselFSMHandle) {
   cache.mainMem.b.ready := false.B
 
   def read(buffer: Vec[UInt], bufferTag: UInt) = {
-    //if we're here, the current PC was a miss, ask for the data from the backing store
+    require(cache.p.dataBeats > 0)
+    val (read_count, read_wrap_out) = Counter(cache.mainMem.r.fire, cache.p.dataBeats)
+
+    //if we're here, the current address was a miss, ask for the data from the backing store
     cache.mainMem.ar.bits := NastiAddressBundle(cache.nasti)(
       0.U,
       (cache.address(cache.xlen - 1, cache.p.offsetLen) << cache.p.offsetLen.U).asUInt,
@@ -51,6 +52,26 @@ class Backend(cache: Cache, fsmHandle: ChiselFSMHandle) {
 
     //retrun the signal to say that the read is done
     read_wrap_out
+  }
+
+  def sparceWrite(data: UInt, mask: UInt) = {
+    require(cache.p.dataBeats > 0)
+    val (write_count, write_wrap_out) = Counter(cache.mainMem.w.fire, cache.p.dataBeats)
+
+    cache.mainMem.aw.bits := NastiAddressBundle(cache.nasti)(
+      0.U,
+      (cache.address(cache.xlen - 1, cache.p.offsetLen) << cache.p.offsetLen.U).asUInt,
+      log2Up(cache.nasti.dataBits / 8).U,
+      (cache.p.dataBeats - 1).U
+    )
+
+    cache.mainMem.w.bits := NastiWriteDataBundle(cache.nasti)(
+      0.U,
+      None,
+      write_wrap_out
+    )
+
+    write_wrap_out
   }
 
   def writeStub() = {
