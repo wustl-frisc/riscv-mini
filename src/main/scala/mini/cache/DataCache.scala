@@ -1,6 +1,7 @@
 // See LICENSE for license details.
 
 package mini
+package cache
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
@@ -33,13 +34,13 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
   val io = IO(new CacheModuleIO(nasti, addrWidth = xlen, dataWidth = xlen))
 
 
-  val sIdle = CacheState("sIdle")
-  val sReadCache = CacheState("sReadCache")
-  val sWriteCache = CacheState("sWriteCache")
-  val sWriteBack = CacheState("sWriteBack")
-  val sWriteAck = CacheState("sWriteAck")
-  val sRefillReady = CacheState("sRefillReady")
-  val sRefill = CacheState("sRefill")
+  val sIdle = IdleState("sIdle")
+  val sReadCache = ReadState("sReadCache")
+  val sWriteCache = WriteState("sWriteCache")
+  val sWriteBack = MemoryState("sWriteBack")
+  val sWriteAck = MemoryState("sWriteAck")
+  val sRefillReady = MemoryState("sRefillReady")
+  val sRefill = MemoryState("sRefill")
 
   val readReq = CacheToken("readReq")
   val writeReq = CacheToken("writeReq")

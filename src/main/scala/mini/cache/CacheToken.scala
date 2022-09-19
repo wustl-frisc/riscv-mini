@@ -1,4 +1,5 @@
 package mini
+package cache
 
 import foam._
 import chisel3._

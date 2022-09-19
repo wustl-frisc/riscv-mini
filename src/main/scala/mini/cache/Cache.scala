@@ -1,12 +1,14 @@
 // See LICENSE for license details.
 
 package mini
+package cache
 
 import chisel3._
 import chisel3.experimental.ChiselEnum
 import chisel3.util._
 import junctions._
 import foam._
+import foam.aspects._
 
 class CacheReq(addrWidth: Int, dataWidth: Int) extends Bundle {
   val addr = UInt(addrWidth.W)
@@ -69,25 +71,25 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   //this section is for things needed by the frontend and the backend
   //split the address up into the parts we need
-  private val nextPC = Wire(UInt(xlen.W))
-  private val pc = Reg(UInt(xlen.W))
-  private val tag = pc(xlen - 1, p.indexLen + p.offsetLen)
-  private val offset = pc(p.offsetLen - 1, p.byteOffsetBits)
+  private val nextAddress = Wire(UInt(xlen.W))
+  private[cache] val address = Reg(UInt(xlen.W))
+  private[cache] val tag = address(xlen - 1, p.indexLen + p.offsetLen)
+  private val offset = address(p.offsetLen - 1, p.byteOffsetBits)
 
   //create a buffer for reads from main memory, also store the tag
   private val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
   private val bufferTag = Reg(UInt(p.tlen.W))
   //hit can be several different things depending on the feature set
-  private val hit = Wire(Bool())
+  private[cache] val hit = Wire(Bool())
   hit := false.B
 
   private val readDone = Wire(Bool())
   readDone := false.B
 
   //create the base finite state machine
-  private val sIdle = new CacheState("sIdle")
-  private val sReadCache = new CacheState("sReadCache")
-  private val sRefill = new CacheState("sRefill")
+  private val sIdle = new IdleState("sIdle")
+  private val sReadCache = new ReadState("sReadCache")
+  private val sRefill = new MemoryState("sRefill")
 
   private val readReq = CacheToken("readReq")
   private val readFinish = CacheToken("readFinish")
@@ -113,7 +115,10 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     
     val fsmHandle = ChiselFSMBuilder(baseNFA)
     frontend(fsmHandle)
-    backend(fsmHandle)
+
+    val back = new Backend(this, fsmHandle)
+    readDone := back.read(buffer, bufferTag)
+    back.writeStub()
     
     when(fsmHandle("sRefill")) {
       v := true.B
@@ -126,19 +131,27 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val fsmHandle = ChiselFSMBuilder(baseNFA)
     frontend(fsmHandle)
     middleend(fsmHandle)
-    backend(fsmHandle)
+
+    val back = new Backend(this, fsmHandle)
+    readDone := back.read(buffer, bufferTag)
+    back.writeStub()
 
     this
   }
 
+  def writeBypass() = {
+    val writeNFA = Weaver[NFA](List(new WriteBypass), baseNFA, (before: NFA, after: NFA) => before.isEqual(after))
+    Emitter.emitGV(writeNFA)
+  }
+
   private def frontend(fsmHandle: ChiselFSMHandle) = {
     //get the next PC from the datapath
-    nextPC := cpu.req.bits.addr
+    nextAddress := cpu.req.bits.addr
     cpu.resp.valid := false.B
 
     //after we've got a valid instruction, we can move onto the next PC
     when(cpu.resp.valid) {
-      pc := nextPC
+      address := nextAddress
     }
 
     // Cache FSM
@@ -165,9 +178,9 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val localMemory = SyncReadMem(p.nSets, UInt((p.nWords * p.wBytes * p.byteBits).W))
 
     //the index of the next PC
-    val nextIndex = nextPC(p.indexLen + p.offsetLen - 1, p.offsetLen)
+    val nextIndex = nextAddress(p.indexLen + p.offsetLen - 1, p.offsetLen)
     //the index of the current pc
-    val index = pc(p.indexLen + p.offsetLen - 1, p.offsetLen)
+    val index = address(p.indexLen + p.offsetLen - 1, p.offsetLen)
     //the tag of the next pc
     //tags requires 1 clock cycle to return data, thus we ask for the next index which
     //will be the current one when the data is ready
@@ -193,64 +206,5 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
     //connect our data lines to the datapath
     cpu.resp.bits.data := reqData
-  }
-
-  private def backend(fsmHandle: ChiselFSMHandle) = {
-    require(p.dataBeats > 0)
-    val (read_count, read_wrap_out) = Counter(mainMem.r.fire, p.dataBeats)
-
-    //if we're here, the current PC was a miss, ask for the data from the backing store
-    mainMem.ar.bits := NastiAddressBundle(nasti)(
-      0.U,
-      (pc(xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
-      log2Up(nasti.dataBits / 8).U,
-      (p.dataBeats - 1).U
-    )
-
-    //read address
-    mainMem.ar.valid := false.B
-
-    // read data
-    mainMem.r.ready := false.B
-    when(mainMem.r.fire) {
-      buffer(read_count) := mainMem.r.bits.data
-      bufferTag := tag
-    }
-
-    // write addr
-    mainMem.aw.bits := NastiAddressBundle(nasti)(
-      0.U,
-      0.U,
-      0.U,
-      0.U
-    )
-    mainMem.aw.valid := false.B
-    // write data
-    mainMem.w.bits := NastiWriteDataBundle(nasti)(
-      0.U,
-      None,
-      false.B
-    )
-    mainMem.w.valid := false.B
-    // write resp
-    mainMem.b.ready := false.B
-
-    when(fsmHandle("sReadCache")) {
-      //when the data is stale, we go get some new fresh data
-      when(!hit) {
-        mainMem.ar.valid := true.B
-      }
-    }
-
-    when(fsmHandle("sRefill")) {
-      //let the main memory we're ready
-      mainMem.r.ready := true.B
-      when(read_wrap_out) {
-        readDone := true.B
-      }
-    }
-
-    fsmHandle("cleanMiss") := mainMem.ar.fire //leave the read state when mem has recieved our address
-    fsmHandle("refillFinish") := read_wrap_out // leave the refill state when we've got our data
   }
 }

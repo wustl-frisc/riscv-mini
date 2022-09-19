@@ -5,6 +5,7 @@ package mini
 import chisel3._
 import chisel3.util._
 import chisel3.experimental.BundleLiterals._
+import cache._
 
 object Const {
   val PC_START = 0x200

@@ -4,6 +4,7 @@ package mini
 
 import chisel3._
 import chisel3.util.Valid
+import cache._
 
 case class CoreConfig(
   xlen:       Int,

@@ -3,6 +3,7 @@
 package mini
 
 import junctions.NastiBundleParameters
+import cache._
 
 case class Config(core: CoreConfig, cache: CacheConfig, nasti: NastiBundleParameters)
 
