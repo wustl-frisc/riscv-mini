@@ -28,10 +28,10 @@ class CacheIO(addrWidth: Int, dataWidth: Int) extends Bundle {
 
 case class CacheConfig(nWays: Int, nSets: Int, blockBytes: Int)
 
-class CacheParams(val nSets: Int, blockBytes: Int, xlen: Int, dataBits: Int) {
+class CacheParams(val nSets: Int, val blockBytes: Int, val xlen: Int, val nasti: NastiBundleParameters) {
   println("Cache Config:")
 
-  println("\tdata bits: "  + dataBits)
+  println("\tdata bits: "  + nasti.dataBits)
 
   val bBytes = blockBytes
   println("\tblock bytes: " + bBytes)
@@ -60,14 +60,14 @@ class CacheParams(val nSets: Int, blockBytes: Int, xlen: Int, dataBits: Int) {
   val byteOffsetBits = log2Ceil(wBytes)
   println("\tbyte offset bits: " + byteOffsetBits)
 
-  val dataBeats = bBits / dataBits
+  val dataBeats = bBits / nasti.dataBits
   println("\tdata beats: " + dataBeats)
 }
 
 
 class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
-  val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti.dataBits)
+  val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti)
   val cpu = IO(new CacheIO(xlen, xlen))
   val mainMem = IO(new NastiBundle(nasti))
 
@@ -79,6 +79,15 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   private[cache] val tag = address(xlen - 1, p.indexLen + p.offsetLen)
   private[cache] val offset = address(p.offsetLen - 1, p.byteOffsetBits)
   val valids = RegInit(0.U(p.nSets.W))
+
+  //get the next address and mask from the datapath
+  nextAddress := cpu.req.bits.addr
+  cpu.resp.valid := false.B
+
+  //after we've got a valid req, we can move onto the next req
+  when(cpu.resp.valid) {
+    address := nextAddress
+  }
 
   //create a buffer for reads from main memory, also store the tag
   private val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
@@ -118,11 +127,11 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     cpu.resp.bits.data := reqData
     
     val fsmHandle = ChiselFSMBuilder(baseNFA)
-    val front = new Frontend(this, fsmHandle)
+    val front = new Frontend(fsmHandle, cpu, hit)
     front.read()
 
-    val back = new Backend(this, fsmHandle)
-    readDone := back.read(buffer, bufferTag)
+    val back = new Backend(fsmHandle, p, mainMem, address)
+    readDone := back.read(buffer, bufferTag, tag, hit)
     back.writeStub()
     
     when(fsmHandle("sRefill")) {
@@ -134,13 +143,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   def readOnly() = {
     val fsmHandle = ChiselFSMBuilder(baseNFA)
-    val front = new Frontend(this, fsmHandle)
+    val front = new Frontend(fsmHandle, cpu, hit)
     front.read()
 
     middleend(fsmHandle)
 
-    val back = new Backend(this, fsmHandle)
-    readDone := back.read(buffer, bufferTag)
+    val back = new Backend(fsmHandle, p, mainMem, address)
+    readDone := back.read(buffer, bufferTag, tag, hit)
     back.writeStub()
 
     this
@@ -149,23 +158,15 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   def writeBypass() = {
     val writeNFA = Weaver[NFA](List(new WriteBypass), baseNFA, (before: NFA, after: NFA) => before.isEqual(after))
     val fsmHandle = ChiselFSMBuilder(writeNFA)
-    val front = new Frontend(this, fsmHandle)
+    val front = new Frontend(fsmHandle, cpu, hit)
     front.read()
-    front.write()
+    val (data, mask) = front.write()
 
     middleend(fsmHandle)
 
-    val data = Reg(chiselTypeOf(cpu.req.bits.data))
-    val mask = Reg(chiselTypeOf(cpu.req.bits.data))
-
-    when(cpu.resp.valid) {
-      data := cpu.req.bits.data
-      mask := cpu.req.bits.mask
-    }
-
-    val back = new Backend(this, fsmHandle)
-    readDone := back.read(buffer, bufferTag)
-    back.sparceWrite(data, mask)
+    val back = new Backend(fsmHandle, p, mainMem, address)
+    readDone := back.read(buffer, bufferTag, tag, hit)
+    back.sparceWrite(data, mask, valids, offset)
 
     this
   }
