@@ -37,13 +37,10 @@ class TileTester(tile: => Tile, benchmark: String, latency: Int = 8, trace: Bool
   val addr = Reg(UInt(nasti.addrBits.W))
   val len = Reg(UInt(NastiConstants.LenBits.W))
   val off = Reg(UInt(NastiConstants.LenBits.W))
-  val write = (0 until (nasti.dataBits / 8)).foldLeft(0.U(nasti.dataBits.W)) { (write, i) =>
-    write |
-      (Mux(dut.io.nasti.w.bits.strb(i), dut.io.nasti.w.bits.data, _mem(addr))(
-        8 * (i + 1) - 1,
-        8 * i
-      ) << (8 * i).U).asUInt
-  }
+
+  val blastBytes = nasti.dataBits / 8
+  val write = (VecInit.tabulate(blastBytes)(byte => (Mux(dut.io.nasti.w.bits.strb(byte), dut.io.nasti.w.bits.data, _mem(addr + off)))(8 * (byte + 1) - 1, 8 * byte))).asUInt
+
   val bpipe = WireInit(dut.io.nasti.b)
   val rpipe = WireInit(dut.io.nasti.r)
 
