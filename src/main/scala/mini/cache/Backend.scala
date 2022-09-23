@@ -65,13 +65,38 @@ class Backend(cache: Cache, fsmHandle: ChiselFSMHandle) {
       (cache.p.dataBeats - 1).U
     )
 
+    val writeData = Fill(cache.p.nWords, data)
+    val wordMask = VecInit.tabulate(cache.p.nWords)(i => 0.U(cache.p.wBytes.W))
+    wordMask(cache.offset) := mask
+    val writeMask = VecInit.tabulate(cache.p.dataBeats)(i => Cat(wordMask((i + 1) * cache.p.dataBeats - 1), wordMask(i * cache.p.dataBeats)))
+
     cache.mainMem.w.bits := NastiWriteDataBundle(cache.nasti)(
-      0.U,
-      None,
+      VecInit.tabulate(cache.p.dataBeats)(i => writeData((i + 1) * cache.nasti.dataBits - 1, i * cache.nasti.dataBits))(write_count),
+      Some(writeMask(write_count)),
       write_wrap_out
     )
 
-    write_wrap_out
+    when(fsmHandle("sWriteCache")) {
+      cache.mainMem.aw.valid := true.B
+    }
+
+    fsmHandle("writeMiss") := cache.mainMem.aw.fire
+
+    when(fsmHandle("sWriteSetup")) {
+      cache.mainMem.w.valid := true.B
+    }
+
+    fsmHandle("memWait") := write_wrap_out
+
+    val index = cache.address(cache.p.indexLen + cache.p.offsetLen - 1, cache.p.offsetLen)
+    when(fsmHandle("sWriteWait")) {
+      cache.valids := cache.valids.bitSet(index, false.B)
+      cache.mainMem.b.ready := true.B
+    }
+
+    fsmHandle("ack") := cache.mainMem.b.fire
+
+    cache.mainMem.b.fire
   }
 
   def writeStub() = {

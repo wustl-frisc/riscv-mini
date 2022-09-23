@@ -111,13 +111,14 @@ class Tile(val coreParams: CoreConfig, val nastiParams: NastiBundleParameters, v
   
   val icache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).readOnly())
   
-  val dcache = Module(new DataCache(cacheParams, nastiParams, coreParams.xlen))
+  val dcache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).writeBypass())
+
   val arb = Module(new MemArbiter(nastiParams))
 
   io.host <> core.io.host
   core.io.icache <> icache.cpu
-  core.io.dcache <> dcache.io.cpu
+  core.io.dcache <> dcache.cpu
   arb.io.icache <> icache.mainMem
-  arb.io.dcache <> dcache.io.nasti
+  arb.io.dcache <> dcache.mainMem
   io.nasti <> arb.io.nasti
 }

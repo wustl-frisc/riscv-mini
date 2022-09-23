@@ -31,6 +31,8 @@ case class CacheConfig(nWays: Int, nSets: Int, blockBytes: Int)
 class CacheParams(val nSets: Int, blockBytes: Int, xlen: Int, dataBits: Int) {
   println("Cache Config:")
 
+  println("\tdata bits: "  + dataBits)
+
   val bBytes = blockBytes
   println("\tblock bytes: " + bBytes)
 
@@ -71,10 +73,12 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   //this section is for things needed by the frontend and the backend
   //split the address up into the parts we need
-  private val nextAddress = Wire(UInt(xlen.W))
-  private[cache] val address = Reg(UInt(xlen.W))
+  //TODO: Move what we can into constructors of classes 
+  private[cache] val nextAddress = Wire(chiselTypeOf(cpu.req.bits.addr))
+  private[cache] val address = Reg(chiselTypeOf(nextAddress))
   private[cache] val tag = address(xlen - 1, p.indexLen + p.offsetLen)
-  private val offset = address(p.offsetLen - 1, p.byteOffsetBits)
+  private[cache] val offset = address(p.offsetLen - 1, p.byteOffsetBits)
+  val valids = RegInit(0.U(p.nSets.W))
 
   //create a buffer for reads from main memory, also store the tag
   private val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
@@ -114,7 +118,8 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     cpu.resp.bits.data := reqData
     
     val fsmHandle = ChiselFSMBuilder(baseNFA)
-    frontend(fsmHandle)
+    val front = new Frontend(this, fsmHandle)
+    front.read()
 
     val back = new Backend(this, fsmHandle)
     readDone := back.read(buffer, bufferTag)
@@ -129,7 +134,9 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   def readOnly() = {
     val fsmHandle = ChiselFSMBuilder(baseNFA)
-    frontend(fsmHandle)
+    val front = new Frontend(this, fsmHandle)
+    front.read()
+
     middleend(fsmHandle)
 
     val back = new Backend(this, fsmHandle)
@@ -141,47 +148,40 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   def writeBypass() = {
     val writeNFA = Weaver[NFA](List(new WriteBypass), baseNFA, (before: NFA, after: NFA) => before.isEqual(after))
-    Emitter.emitGV(writeNFA)
-  }
+    val fsmHandle = ChiselFSMBuilder(writeNFA)
+    val front = new Frontend(this, fsmHandle)
+    front.read()
+    front.write()
 
-  private def frontend(fsmHandle: ChiselFSMHandle) = {
-    //get the next PC from the datapath
-    nextAddress := cpu.req.bits.addr
-    cpu.resp.valid := false.B
+    middleend(fsmHandle)
 
-    //after we've got a valid instruction, we can move onto the next PC
+    val data = Reg(chiselTypeOf(cpu.req.bits.data))
+    val mask = Reg(chiselTypeOf(cpu.req.bits.data))
+
     when(cpu.resp.valid) {
-      address := nextAddress
+      data := cpu.req.bits.data
+      mask := cpu.req.bits.mask
     }
 
-    // Cache FSM
-    when(fsmHandle("sIdle")) {
-      cpu.resp.valid := true.B
-    }
+    val back = new Backend(this, fsmHandle)
+    readDone := back.read(buffer, bufferTag)
+    back.sparceWrite(data, mask)
 
-    when(fsmHandle("sReadCache")) {
-      when(hit) {
-        cpu.resp.valid := true.B
-      }
-    }
-
-    fsmHandle("readReq") := cpu.req.valid //leave idle when an incoming request happens
-    fsmHandle("readFinish") := !cpu.req.valid && hit //leave read when we've got the right data, but the cpu is ready to move on
+    this
   }
 
   private def middleend(fsmHandle: ChiselFSMHandle) = {
     //set up the bookkeeping
-    val valids = RegInit(0.U(p.nSets.W))
     //just store the tags
     val tags = SyncReadMem(p.nSets, UInt(p.tlen.W))
     //for each set, we have a line that is nWords * wBytes long
     val localMemory = SyncReadMem(p.nSets, UInt((p.nWords * p.wBytes * p.byteBits).W))
 
-    //the index of the next PC
+    //the index of the next address
     val nextIndex = nextAddress(p.indexLen + p.offsetLen - 1, p.offsetLen)
-    //the index of the current pc
+    //the index of the current address
     val index = address(p.indexLen + p.offsetLen - 1, p.offsetLen)
-    //the tag of the next pc
+    //the tag of the next address
     //tags requires 1 clock cycle to return data, thus we ask for the next index which
     //will be the current one when the data is ready
     val nextTag = tags.read(nextIndex).asUInt
