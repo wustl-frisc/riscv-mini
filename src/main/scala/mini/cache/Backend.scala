@@ -18,7 +18,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
   //write response
   io.b.ready := false.B
 
-  def read(buffer: Vec[UInt], bufferTag: UInt, tag: UInt, hit: Bool) = {
+  def read(buffer: Vec[UInt], hit: Bool) = {
     require(p.dataBeats > 0)
     val (read_count, read_wrap_out) = Counter(io.r.fire, p.dataBeats)
 
@@ -32,7 +32,6 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
 
     when(io.r.fire) {
       buffer(read_count) := io.r.bits.data
-      bufferTag := tag
     }
 
     when(fsmHandle("sReadCache")) {
@@ -54,51 +53,6 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     read_wrap_out
   }
 
-  def sparceWrite(data: UInt, mask: UInt, valids: UInt, offset: UInt) = {
-    require(p.dataBeats > 0)
-    val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
-
-    io.aw.bits := NastiAddressBundle(p.nasti)(
-      0.U,
-      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
-      log2Up(p.nasti.dataBits / 8).U,
-      (p.dataBeats - 1).U
-    )
-
-    val writeData = Fill(p.nWords, data)
-    val wordMask = VecInit.tabulate(p.nWords)(i => 0.U(p.wBytes.W))
-    wordMask(offset) := mask
-    val writeMask = VecInit.tabulate(p.dataBeats)(i => Cat(wordMask((i + 1) * p.dataBeats - 1), wordMask(i * p.dataBeats)))
-
-    io.w.bits := NastiWriteDataBundle(p.nasti)(
-      VecInit.tabulate(p.dataBeats)(i => writeData((i + 1) * p.nasti.dataBits - 1, i * p.nasti.dataBits))(write_count),
-      Some(writeMask(write_count)),
-      write_wrap_out
-    )
-
-    when(fsmHandle("sWriteCache")) {
-      io.aw.valid := true.B
-    }
-
-    fsmHandle("writeMiss") := io.aw.fire
-
-    when(fsmHandle("sWriteSetup")) {
-      io.w.valid := true.B
-    }
-
-    fsmHandle("memWait") := write_wrap_out
-
-    val index = address(p.indexLen + p.offsetLen - 1, p.offsetLen)
-    when(fsmHandle("sWriteWait")) {
-      valids := valids.bitSet(index, false.B)
-      io.b.ready := true.B
-    }
-
-    fsmHandle("ack") := io.b.fire
-
-    io.b.fire
-  }
-
   def writeStub() = {
     // write addr
     io.aw.bits := NastiAddressBundle(p.nasti)(
@@ -113,5 +67,53 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
       None,
       false.B
     )
+  }
+
+  def write(data: UInt, mask: Vec[UInt], offset: UInt, hit: Bool) = {
+    require(p.dataBeats > 0)
+    val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
+
+    //set up write address channel
+    io.aw.bits := NastiAddressBundle(p.nasti)(
+      0.U,
+      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
+      log2Up(p.nasti.dataBits / 8).U,
+      (p.dataBeats - 1).U
+    )
+
+    //setup write channel -- this is a full cacheline with our mask 
+    io.w.bits := NastiWriteDataBundle(p.nasti)(
+      VecInit.tabulate(p.dataBeats)(i => data((i + 1) * p.nasti.dataBits - 1, i * p.nasti.dataBits))(write_count),
+      Some(mask(write_count)),
+      write_wrap_out
+    )
+
+    //tell the memory to get ready to write to the address
+    when(fsmHandle("sWriteCache")) {
+      when(!hit) {
+        io.aw.valid := true.B
+      }
+    }
+
+    //memory ready for write
+    fsmHandle("writeMiss") := io.aw.fire
+
+    //tell the memory our data is valid
+    when(fsmHandle("sWriteSetup")) {
+      io.w.valid := true.B
+    }
+
+    //when we're done writing, wait for ack
+    fsmHandle("memWait") := write_wrap_out
+
+    //say we're ready for ack  
+    when(fsmHandle("sWriteWait")) {
+      io.b.ready := true.B
+    }
+
+    //write has been acknowledged
+    fsmHandle("ack") := io.b.fire
+
+    io.b.fire
   }
 }

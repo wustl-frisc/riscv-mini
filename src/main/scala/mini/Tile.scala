@@ -111,7 +111,7 @@ class Tile(val coreParams: CoreConfig, val nastiParams: NastiBundleParameters, v
   
   val icache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).readOnly())
   
-  val dcache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).writeBypass())
+  val dcache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).writeThrough())
 
   val arb = Module(new MemArbiter(nastiParams))
 
