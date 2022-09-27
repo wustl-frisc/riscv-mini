@@ -40,6 +40,9 @@ class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
     //set up the conditions to start a write
     fsmHandle("writeReq") := io.req.valid && io.req.bits.mask.orR
 
+    //bailout if we have an exception from the datapath
+    fsmHandle("writeFinish") := io.abort
+
     (writeData, writeMask)
   }
 

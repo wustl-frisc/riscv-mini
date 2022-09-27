@@ -10,6 +10,7 @@ class WriteBypass extends Aspect[NFA] {
   private val writeWait = WriteWaitState("sWriteWait")
   
   private val writeReq = CacheToken("writeReq")
+  private val writeFinish = CacheToken("writeFinish")
   private val writeMiss = CacheToken("writeMiss")
   private val memWait = CacheToken("memWait")
   private val ack = CacheToken("ack")
@@ -23,6 +24,7 @@ class WriteBypass extends Aspect[NFA] {
 
     val step1 = AroundState[IdleState](idlePointcut, nfa)((thisJoinpoint: Joinpoint[IdleState], thisNFA: NFA) => {
       val newNFA = thisNFA.addTransition((thisJoinpoint.point, writeReq), writeCache)
+        .addTransition((writeCache, writeFinish), thisJoinpoint.point)
         .addTransition((writeCache, writeMiss), writeSetup)
         .addTransition((writeSetup, memWait), writeWait)
       (thisJoinpoint.point, newNFA)
