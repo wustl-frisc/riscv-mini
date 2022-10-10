@@ -186,7 +186,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     
     front.read(hit)
 
-    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu)
+    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu, mainMem)
 
     readDone := back.read(buffer, hit)
     back.writeStub()
@@ -204,11 +204,11 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu)
+    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu, mainMem)
 
     readDone := back.read(buffer, hit)
     back.write(data, mask, offset, cpu.abort) //only write when we're not doing an abort
-
+    
     val index = address(p.indexLen + p.offsetLen - 1, p.offsetLen)
     when(fsmHandle("sWriteWait")) {
       valids := valids.bitSet(index, false.B)
@@ -227,7 +227,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu)
+    val valids = middle.read(buffer, nextAddress, tag, offset, hit, readDone, cpu, mainMem)
     middle.write(data, mask, hit && !cpu.abort)
 
     readDone := back.read(buffer, hit)
