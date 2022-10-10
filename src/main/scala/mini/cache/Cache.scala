@@ -135,6 +135,49 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     this
   }
 
+  def cache1() = {
+    val writeNFA = Weaver[NFA](List(new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
+    Emitter.emitGV(writeNFA)
+    val fsmHandle = ChiselFSMBuilder(writeNFA)
+    val front = new Frontend(fsmHandle, p, cpu)
+    val back = new Backend(fsmHandle, p, mainMem, address)
+
+    //simple bookkeeping
+    val bufferTag = Reg(UInt(p.tlen.W))
+    val v = RegInit(false.B)
+    hit := tag === bufferTag && v
+
+    // Take the cache line and split it into its words, get the word we want
+    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen)) 
+    val reqData = cacheLine(offset)
+    
+    front.read(hit)
+    val (data, mask) = front.write(offset)
+
+    readDone := back.read(buffer, hit)
+    back.write(data, mask, offset, cpu.abort)
+    
+
+    //update our simple bookkeeping
+    when(mainMem.r.fire) {
+      bufferTag := tag
+    }
+    
+    //have to set this to true to keep the processor executing
+    when(fsmHandle("sRefill")) {
+      v := true.B
+    }
+
+    when(fsmHandle("sWriteWait")) {
+      v := false.B
+    }
+
+    //give the CPU the data when it's ready
+    cpu.resp.bits.data := reqData
+
+    this
+  }
+
   def readOnly() = {
     val fsmHandle = ChiselFSMBuilder(BaseFSM())
     val front = new Frontend(fsmHandle, p, cpu)
