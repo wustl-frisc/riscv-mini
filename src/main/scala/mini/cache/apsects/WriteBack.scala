@@ -4,18 +4,9 @@ package cache
 import foam._
 import foam.aspects._
 
-class WriteBypass extends Aspect[NFA] {
-  val writeCache = WriteState("sWriteCache")
-  val writeSetup = WriteSetupState("sWriteSetup")
-  val writeWait = WriteWaitState("sWriteWait")
-  
-  val writeReq = CacheToken("writeReq")
-  val writeFinish = CacheToken("writeFinish")
-  val writeMiss = CacheToken("writeMiss")
-  val memWait = CacheToken("memWait")
-  val ack = CacheToken("ack")
+class WriteBack extends WriteBypass {
 
-  def apply(nfa: NFA) = {
+  override def apply(nfa: NFA) = {
 
     val idlePointcut = Pointcutter[State, IdleState](nfa.states, state => state match {
       case s: IdleState => true
@@ -38,7 +29,7 @@ class WriteBypass extends Aspect[NFA] {
     AfterState[WriteWaitState](waitPointcut, step1)((thisJoinpoint: StateJoinpoint[WriteWaitState], thisNFA: NFA) => {
       thisJoinpoint.out match {
         case Some(t) => (None, thisNFA)
-        case _ => (Some(ack, IdleState("sIdle")), thisNFA)
+        case _ => (Some(ack, ReadState("sRefillSetup")), thisNFA)
       }
     })
   }

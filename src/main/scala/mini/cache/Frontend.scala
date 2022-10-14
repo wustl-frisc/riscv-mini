@@ -21,7 +21,7 @@ class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
     fsmHandle("readFinish") := !io.req.valid && hit //leave read when we've got the right data, but the cpu is ready to move on
   }
 
-  def write(offset: UInt) = {
+  def write(offset: UInt, hit: Bool = false.B, readJustDone: Bool = false.B) = {
     val fromCPUdata = Reg(chiselTypeOf(io.req.bits.data))
     val fromCPUmask = Reg(chiselTypeOf(io.req.bits.data))
 
@@ -41,7 +41,7 @@ class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
     fsmHandle("writeReq") := io.req.valid && io.req.bits.mask.orR
 
     //bailout if we have an exception from the datapath
-    fsmHandle("writeFinish") := io.abort
+    fsmHandle("writeFinish") := io.abort || hit || readJustDone
 
     (writeData, writeMask)
   }
