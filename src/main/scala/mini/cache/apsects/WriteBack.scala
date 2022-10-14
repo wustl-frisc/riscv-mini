@@ -29,7 +29,7 @@ class WriteBack extends WriteBypass {
     AfterState[WriteWaitState](waitPointcut, step1)((thisJoinpoint: StateJoinpoint[WriteWaitState], thisNFA: NFA) => {
       thisJoinpoint.out match {
         case Some(t) => (None, thisNFA)
-        case _ => (Some(ack, ReadState("sRefillSetup")), thisNFA)
+        case _ => (Some(ack, ReadState("sReadCache")), thisNFA)
       }
     })
   }

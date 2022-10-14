@@ -155,7 +155,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val (data, mask) = front.write(offset)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, mask, offset, cpu.abort)
+    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
 
     //update our simple bookkeeping
     when(mainMem.r.fire) {
@@ -208,7 +208,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, mask, offset, cpu.abort) //only write when we're not doing an abort
+    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort) //only write when we're not doing an abort
 
     when(fsmHandle("sWriteWait")) {
       valids := valids.bitSet(index, false.B)
@@ -232,7 +232,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     middle.update(data, mask, fsmHandle("sWriteCache") && hit && !cpu.abort)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, mask, offset, cpu.abort)
+    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
 
     this
   }
@@ -241,10 +241,9 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val writeBackAspect = new WriteBack
     val writeBackNFA = (Weaver[NFA](List(writeBackAspect), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after)))
       .addTransition((BaseFSM.sRefill, CacheToken("doWrite")), writeBackAspect.writeCache)
-      .addTransition((BaseFSM.sReadCache, CacheToken("dirtyMiss")), writeBackAspect.writeSetup)
-      .addTransition((writeBackAspect.writeCache, CacheToken("cleanMiss")), BaseFSM.sRefill)
-      .addTransition((ReadState("sRefillSetup"), CacheToken("doRefill")), BaseFSM.sRefill)
-
+      .addTransition((BaseFSM.sReadCache, CacheToken("dirtyMiss")), writeBackAspect.writeCache)
+      .addTransition((writeBackAspect.writeCache, CacheToken("cleanMiss")), BaseFSM.sReadCache)
+      
     val fsmHandle = ChiselFSMBuilder(writeBackNFA)
     val front = new Frontend(fsmHandle, p, cpu)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
@@ -262,48 +261,21 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     middle.update(data, mask, updateCond)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit, dirty(index), !mask.asUInt.orR)
-    val fullMask = VecInit.tabulate(p.dataBeats)(i => 1.U((p.blockBytes / p.dataBeats).W))
-    back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, fullMask, offset, hit || readJustDone || cpu.abort, dirty(index))
+    back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, None, offset, hit || readJustDone || cpu.abort, dirty(index))
 
     when(updateCond) {
       dirty := dirty.bitSet(index, true.B)
     }
 
-    when(fsmHandle("sRefill")) {
+    when(fsmHandle("sWriteWait")) {
       dirty := dirty.bitSet(index, false.B)
-    }
-
-    when(fsmHandle("sRefillSetup")) {
-      mainMem.ar.valid := true.B
     }
 
 
     fsmHandle("doWrite") := mask.asUInt.orR && readDone
-    fsmHandle("dirtyMiss") := mainMem.aw.fire
-    fsmHandle("cleanMiss") := mainMem.ar.fire
-    fsmHandle("doRefill") := mainMem.ar.fire
+    fsmHandle("dirtyMiss") := !hit && dirty(index)
+    fsmHandle("cleanMiss") := !(hit || readJustDone || cpu.abort) && !dirty(index)
 
-    /*when(fsmHandle("sIdle")) {
-      printf("sIdle\n")
-    }
-    when(fsmHandle("sReadCache")) {
-      printf("sReadCache\n")
-    }
-    when(fsmHandle("sWriteCache")) {
-      printf("sWriteCache\n")
-    }
-    when(fsmHandle("sRefill")) {
-      printf("sRefill\n")
-    }
-    when(fsmHandle("sWriteSetup")) {
-      printf("sWriteSetup\n")
-    }
-    when(fsmHandle("sWriteWait")) {
-      printf("sWriteWait\n")
-    }
-    when(fsmHandle("sRefillSetup")) {
-      printf("sRefillSetup\n")
-    }*/
     this
   }
 

@@ -36,9 +36,8 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
 
     when(fsmHandle("sReadCache")) {
       //when the data is stale, we go get some new fresh data
-      when(!hit) {
-        io.aw.valid := dirty
-        io.ar.valid := !dirty
+      when(!hit & !dirty) {
+        io.ar.valid := true.B
       }
     }
 
@@ -70,7 +69,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     )
   }
 
-  def write(address: UInt, data: UInt, mask: Vec[UInt], offset: UInt, hit: Bool, dirty: Bool = true.B) = {
+  def write(address: UInt, data: UInt, mask: Option[Vec[UInt]], offset: UInt, hit: Bool, dirty: Bool = true.B) = {
     require(p.dataBeats > 0)
     val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
 
@@ -85,16 +84,17 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     //setup write channel -- this is a full cacheline with our mask 
     io.w.bits := NastiWriteDataBundle(p.nasti)(
       VecInit.tabulate(p.dataBeats)(i => data((i + 1) * p.nasti.dataBits - 1, i * p.nasti.dataBits))(write_count),
-      //Some(mask(write_count)),
-      None,
+      mask match {
+        case None => None
+        case Some(bitMask) => Some(bitMask(write_count))
+      },
       write_wrap_out
     )
 
     //tell the memory to get ready to write to the address
     when(fsmHandle("sWriteCache")) {
-      when(!hit) {
-        io.aw.valid := dirty
-        io.ar.valid := !dirty
+      when(!hit && dirty) {
+        io.aw.valid := true.B
       }
     }
 
