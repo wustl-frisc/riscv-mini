@@ -69,7 +69,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     )
   }
 
-  def write(address: UInt, data: UInt, mask: Option[Vec[UInt]], offset: UInt, hit: Bool, dirty: Bool = true.B) = {
+  def write(address: UInt, data: UInt, mask: Option[Vec[UInt]], offset: UInt, localWrite: Bool, dirty: Bool = true.B) = {
     require(p.dataBeats > 0)
     val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
 
@@ -93,7 +93,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
 
     //tell the memory to get ready to write to the address
     when(fsmHandle("sWriteCache")) {
-      when(!hit && dirty) {
+      when(!localWrite && dirty) {
         io.aw.valid := true.B
       }
     }

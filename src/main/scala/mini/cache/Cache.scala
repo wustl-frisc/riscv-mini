@@ -253,15 +253,16 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val dirty = RegInit(0.U(p.nSets.W))
 
     front.read(hit)
-    val (data, mask) = front.write(offset, hit, readJustDone)
+    val (data, mask) = front.write(offset, hit || readJustDone)
 
     val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, cpu)
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
 
+    val localWrite = hit || readJustDone || cpu.abort
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit, dirty(index), !mask.asUInt.orR)
-    back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, None, offset, hit || readJustDone || cpu.abort, dirty(index))
+    back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, None, offset, localWrite, dirty(index))
 
     when(updateCond) {
       dirty := dirty.bitSet(index, true.B)
@@ -274,7 +275,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
     fsmHandle("doWrite") := mask.asUInt.orR && readDone
     fsmHandle("dirtyMiss") := !hit && dirty(index)
-    fsmHandle("cleanMiss") := !(hit || readJustDone || cpu.abort) && !dirty(index)
+    fsmHandle("cleanMiss") := !localWrite && !dirty(index)
 
     this
   }
