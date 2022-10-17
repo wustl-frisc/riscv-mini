@@ -78,7 +78,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   private val address = Reg(chiselTypeOf(nextAddress))
   private val tag = address(xlen - 1, p.indexLen + p.offsetLen)
   private val offset = address(p.offsetLen - 1, p.byteOffsetBits)
-  private val index = address(p.indexLen + p.offsetLen - 1, p.offsetLen)
+  private val index = if(p.nSets == 1) 0.U else address(p.indexLen + p.offsetLen - 1, p.offsetLen)
 
   //create a buffer for reads from main memory, also store the tag
   private val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
@@ -136,8 +136,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   }
 
   def cache1() = {
-    val writeNFA = Weaver[NFA](List(new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
-    Emitter.emitGV(writeNFA)
+    val writeNFA = Weaver[NFA](List(new WriteAspect, new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
     val fsmHandle = ChiselFSMBuilder(writeNFA)
     val front = new Frontend(fsmHandle, p, cpu)
     val back = new Backend(fsmHandle, p, mainMem, address)
@@ -195,7 +194,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   }
 
   def writeBypass() = {
-    val writeNFA = Weaver[NFA](List(new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
+    val writeNFA = Weaver[NFA](List(new WriteAspect, new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
     val fsmHandle = ChiselFSMBuilder(writeNFA)
     val front = new Frontend(fsmHandle, p, cpu)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
@@ -208,7 +207,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort) //only write when we're not doing an abort
+    back.write(
+      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
+      data,
+      Some(mask),
+      offset,
+      cpu.abort
+    ) //only write when we're not doing an abort
 
     when(fsmHandle("sWriteWait")) {
       valids := valids.bitSet(index, false.B)
@@ -218,7 +223,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   }
 
   def writeThrough() = {
-    val writeNFA = Weaver[NFA](List(new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
+    val writeNFA = Weaver[NFA](List(new WriteAspect, new WriteBypass), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after))
     val fsmHandle = ChiselFSMBuilder(writeNFA)
     val front = new Frontend(fsmHandle, p, cpu)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
@@ -238,12 +243,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   }
 
   def writeBack() = {
-    val writeBackAspect = new WriteBack
-    val writeBackNFA = (Weaver[NFA](List(writeBackAspect), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after)))
-      .addTransition((BaseFSM.sRefill, CacheToken("doWrite")), writeBackAspect.writeCache)
-      .addTransition((BaseFSM.sReadCache, CacheToken("dirtyMiss")), writeBackAspect.writeCache)
-      .addTransition((writeBackAspect.writeCache, CacheToken("cleanMiss")), BaseFSM.sReadCache)
-      
+    val writeAspect = new WriteAspect
+    val writeBackNFA =
+      (Weaver[NFA](List(writeAspect, new WriteBack), BaseFSM(), (before: NFA, after: NFA) => before.isEqual(after)))
+        .addTransition((BaseFSM.sRefill, CacheToken("doWrite")), writeAspect.writeCache)
+        .addTransition((BaseFSM.sReadCache, CacheToken("dirtyMiss")), writeAspect.writeCache)
+        .addTransition((writeAspect.writeCache, CacheToken("cleanMiss")), BaseFSM.sReadCache)
+
     val fsmHandle = ChiselFSMBuilder(writeBackNFA)
     val front = new Frontend(fsmHandle, p, cpu)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
@@ -261,7 +267,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     middle.update(data, mask, updateCond)
 
     val localWrite = hit || readJustDone || cpu.abort
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit, dirty(index), !mask.asUInt.orR)
+    readDone := back.read(
+      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
+      buffer,
+      hit,
+      dirty(index),
+      !mask.asUInt.orR
+    )
     back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, None, offset, localWrite, dirty(index))
 
     when(updateCond) {
@@ -271,7 +283,6 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     when(fsmHandle("sWriteWait")) {
       dirty := dirty.bitSet(index, false.B)
     }
-
 
     fsmHandle("doWrite") := mask.asUInt.orR && readDone
     fsmHandle("dirtyMiss") := !hit && dirty(index)

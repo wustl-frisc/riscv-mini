@@ -18,7 +18,8 @@ class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
     }
 
     fsmHandle("readReq") := io.req.valid && !io.req.bits.mask.orR //leave idle when an incoming request happens
-    fsmHandle("readFinish") := !io.req.valid && hit //leave read when we've got the right data, but the cpu is ready to move on
+    //leave read when we've got the right data, but the cpu is ready to move on
+    fsmHandle("readFinish") := !io.req.valid && hit
   }
 
   def write(offset: UInt, readDone: Bool = false.B) = {
@@ -35,7 +36,8 @@ class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
     val writeData = Fill(p.nWords, fromCPUdata)
     val wordMask = VecInit.tabulate(p.nWords)(i => 0.U(p.wBytes.W))
     wordMask(offset) := fromCPUmask
-    val writeMask = VecInit.tabulate(p.dataBeats)(i => Cat(wordMask((i + 1) * p.dataBeats - 1), wordMask(i * p.dataBeats)))
+    val writeMask =
+      VecInit.tabulate(p.dataBeats)(i => Cat(wordMask((i + 1) * p.dataBeats - 1), wordMask(i * p.dataBeats)))
 
     //set up the conditions to start a write
     fsmHandle("writeReq") := io.req.valid && io.req.bits.mask.orR

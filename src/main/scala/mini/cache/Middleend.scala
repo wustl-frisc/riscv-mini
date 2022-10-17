@@ -39,8 +39,10 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
     val justAllocated = RegNext(allocateCond)
 
     //Take the cache line and split it into its words, get the word we want
-    val readPort = localMemory.read(nextIndex, readEnable) //get started on the next PC, will take 1 clock cycle to get the data
-    val readData = Mux(justAllocated, buffer.asUInt, readPort.asUInt) //read from the buffer until we're sure the write is finished
+    val readPort =
+      localMemory.read(nextIndex, readEnable) //get started on the next PC, will take 1 clock cycle to get the data
+    val readData =
+      Mux(justAllocated, buffer.asUInt, readPort.asUInt) //read from the buffer until we're sure the write is finished
     val cacheLine = VecInit.tabulate(p.nWords)(i => readData((i + 1) * p.xlen - 1, i * p.xlen))
     val reqData = cacheLine(offset)
 
@@ -56,7 +58,8 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
     when(allocateCond) {
       valids := valids.bitSet(index, true.B)
       tags.write(index, tag)
-      val writeVec = VecInit.tabulate(p.nWords * p.wBytes)(i => cacheLine.asUInt((i + 1) * p.byteBits - 1, i * p.byteBits))
+      val writeVec =
+        VecInit.tabulate(p.nWords * p.wBytes)(i => cacheLine.asUInt((i + 1) * p.byteBits - 1, i * p.byteBits))
       localMemory.write(index, writeVec)
     }
   }

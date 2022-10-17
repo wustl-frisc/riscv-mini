@@ -36,7 +36,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
 
     when(fsmHandle("sReadCache")) {
       //when the data is stale, we go get some new fresh data
-      when(!hit & !dirty) {
+      when(!hit && !dirty) {
         io.ar.valid := true.B
       }
     }
@@ -47,7 +47,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     }
 
     fsmHandle("readMiss") := io.ar.fire //leave the read state when mem has recieved our address
-    fsmHandle("refillFinish") := read_wrap_out && isRead// leave the refill state when we've got our data
+    fsmHandle("refillFinish") := read_wrap_out && isRead // leave the refill state when we've got our data
 
     //retrun the signal to say that the read is done
     read_wrap_out
@@ -69,7 +69,14 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     )
   }
 
-  def write(address: UInt, data: UInt, mask: Option[Vec[UInt]], offset: UInt, localWrite: Bool, dirty: Bool = true.B) = {
+  def write(
+    address:    UInt,
+    data:       UInt,
+    mask:       Option[Vec[UInt]],
+    offset:     UInt,
+    localWrite: Bool,
+    dirty:      Bool = true.B
+  ) = {
     require(p.dataBeats > 0)
     val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
 
@@ -81,11 +88,11 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
       (p.dataBeats - 1).U
     )
 
-    //setup write channel -- this is a full cacheline with our mask 
+    //setup write channel -- this is a full cacheline with our mask
     io.w.bits := NastiWriteDataBundle(p.nasti)(
       VecInit.tabulate(p.dataBeats)(i => data((i + 1) * p.nasti.dataBits - 1, i * p.nasti.dataBits))(write_count),
       mask match {
-        case None => None
+        case None          => None
         case Some(bitMask) => Some(bitMask(write_count))
       },
       write_wrap_out
@@ -109,7 +116,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     //when we're done writing, wait for ack
     fsmHandle("memWait") := write_wrap_out
 
-    //say we're ready for ack  
+    //say we're ready for ack
     when(fsmHandle("sWriteWait")) {
       io.b.ready := true.B
     }
