@@ -4,8 +4,7 @@ package cache
 import foam._
 import foam.aspects._
 
-class WriteBack extends Aspect[NFA] {
-  private val ack = CacheToken("ack")
+class AckRead extends Aspect[NFA] {
 
   override def apply(nfa: NFA) = {
 
@@ -21,7 +20,7 @@ class WriteBack extends Aspect[NFA] {
     AfterState[WriteWaitState](waitPointcut, nfa)((thisJoinpoint: StateJoinpoint[WriteWaitState], thisNFA: NFA) => {
       thisJoinpoint.out match {
         case Some(t) => (None, thisNFA)
-        case _       => (Some(ack, ReadState("sReadCache")), thisNFA)
+        case _       => (Some(WriteFSM.ack, ReadFSM.sReadCache), thisNFA)
       }
     })
   }

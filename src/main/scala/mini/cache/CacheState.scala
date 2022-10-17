@@ -11,6 +11,8 @@ case class IdleState(override val id: String) extends CacheState(id)
 
 case class ReadState(override val id: String) extends CacheState(id)
 
+case class RefillState(override val id: String) extends CacheState(id)
+
 case class WriteSetupState(override val id: String) extends CacheState(id)
 
 case class WriteWaitState(override val id: String) extends CacheState(id)

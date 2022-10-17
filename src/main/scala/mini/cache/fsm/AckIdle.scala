@@ -4,8 +4,7 @@ package cache
 import foam._
 import foam.aspects._
 
-class WriteBypass extends Aspect[NFA] {
-  private val ack = CacheToken("ack")
+class AckIdle extends Aspect[NFA] {
 
   def apply(nfa: NFA) = {
 
@@ -21,7 +20,7 @@ class WriteBypass extends Aspect[NFA] {
     AfterState[WriteWaitState](waitPointcut, nfa)((thisJoinpoint: StateJoinpoint[WriteWaitState], thisNFA: NFA) => {
       thisJoinpoint.out match {
         case Some(t) => (None, thisNFA)
-        case _       => (Some(ack, IdleState("sIdle")), thisNFA)
+        case _       => (Some(WriteFSM.ack, ReadFSM.sIdle), thisNFA)
       }
     })
   }
