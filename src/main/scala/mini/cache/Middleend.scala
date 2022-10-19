@@ -23,7 +23,7 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
   private val readEnable = Wire(Bool())
   readEnable := !(allocateCond || updateCond)
 
-  def read(buffer: Vec[UInt], nextAddress: UInt, offset: UInt, hit: Bool, cpu: CacheIO) = {
+  def read(buffer: Vec[UInt], nextAddress: UInt, offset: UInt, hit: Bool, cpu: Option[CacheIO] = None) = {
 
     //the index of the next address
     val nextIndex = nextAddress(p.indexLen + p.offsetLen - 1, p.offsetLen)
@@ -46,8 +46,10 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
     val cacheLine = VecInit.tabulate(p.nWords)(i => readData((i + 1) * p.xlen - 1, i * p.xlen))
     val reqData = cacheLine(offset)
 
-    //connect our data lines to the datapath
-    cpu.resp.bits.data := reqData
+    cpu match {
+      case Some(io) => io.resp.bits.data := reqData
+      case None => 
+    }
 
     (valids, nextTag, readData)
   }

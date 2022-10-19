@@ -185,7 +185,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
     front.read(hit)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, cpu)
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
@@ -205,7 +205,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, cpu)
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
@@ -235,7 +235,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, cpu)
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     middle.update(data, mask, fsmHandle("sWriteCache") && hit && !cpu.abort)
 
@@ -264,7 +264,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset, hit || readJustDone)
 
-    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, cpu)
+    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
@@ -290,6 +290,63 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     fsmHandle("doWrite") := mask.asUInt.orR && readDone
     fsmHandle("dirtyMiss") := !hit && dirty(index)
     fsmHandle("cleanMiss") := !localWrite && !dirty(index)
+
+    this
+  }
+
+  def dustyCache() = {
+    val writeBackNFA =
+      (Weaver[NFA](
+        List(new AckRead, new DirtyAccounting),
+        ReadFSM() + WriteFSM(),
+        (before: NFA, after: NFA) => before.isEqual(after)
+      ))
+
+    val fsmHandle = ChiselFSMBuilder(writeBackNFA)
+    val front = new Frontend(fsmHandle, p, cpu)
+    val middle = new Middleend(fsmHandle, p, address, tag, index)
+    val dusty = new Middleend(fsmHandle, p, address, tag, index)
+    val back = new Backend(fsmHandle, p, mainMem, address)
+
+    val readJustDone = RegNext(readDone)
+    val dirty = RegInit(0.U(p.nSets.W))
+
+    front.read(hit)
+    val (data, mask) = front.write(offset, hit || readJustDone)
+
+    //local memory
+    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
+    val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
+    middle.update(data, mask, updateCond)
+
+    //image of backing store
+    val (_, _, dustyData) = dusty.read(buffer, nextAddress, offset, Wire(Bool()))
+    dusty.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
+
+    val isDirty = dirty(index) && (dustyData =/= readData)
+
+    val localWrite = hit || readJustDone || cpu.abort
+    readDone := back.read(
+      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
+      buffer,
+      hit,
+      isDirty,
+      !mask.asUInt.orR
+    )
+    back.write((Cat(oldTag, index) << p.offsetLen.U).asUInt, readData, None, offset, localWrite, isDirty)
+
+    when(updateCond) {
+      dirty := dirty.bitSet(index, true.B)
+    }
+
+    when(fsmHandle("sWriteWait")) {
+      dirty := dirty.bitSet(index, false.B)
+    }
+
+    fsmHandle("doWrite") := mask.asUInt.orR && readDone
+    fsmHandle("dirtyMiss") := !hit && isDirty
+    fsmHandle("cleanMiss") := !localWrite && !isDirty
 
     this
   }
