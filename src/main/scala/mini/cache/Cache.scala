@@ -185,7 +185,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
     front.read(hit)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
@@ -205,7 +205,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
@@ -235,7 +235,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     middle.update(data, mask, fsmHandle("sWriteCache") && hit && !cpu.abort)
 
@@ -264,7 +264,7 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     front.read(hit)
     val (data, mask) = front.write(offset, hit || readJustDone)
 
-    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
@@ -315,13 +315,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val (data, mask) = front.write(offset, hit || readJustDone)
 
     //local memory
-    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, hit, Some(cpu))
+    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
 
     //image of backing store
-    val (_, _, dustyData) = dusty.read(buffer, nextAddress, offset, Wire(Bool()))
+    val (_, _, dustyData) = dusty.read(buffer, nextAddress, offset)
     dusty.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     val isDirty = dirty(index) && (dustyData =/= readData)

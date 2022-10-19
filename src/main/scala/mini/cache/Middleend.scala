@@ -23,7 +23,7 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
   private val readEnable = Wire(Bool())
   readEnable := !(allocateCond || updateCond)
 
-  def read(buffer: Vec[UInt], nextAddress: UInt, offset: UInt, hit: Bool, cpu: Option[CacheIO] = None) = {
+  def read(buffer: Vec[UInt], nextAddress: UInt, offset: UInt, hit: Option[Bool] = None, cpu: Option[CacheIO] = None) = {
 
     //the index of the next address
     val nextIndex = nextAddress(p.indexLen + p.offsetLen - 1, p.offsetLen)
@@ -33,7 +33,10 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
     val nextTag = tags.read(nextIndex)
 
     //the hit is when the line is valid and we have it in cache
-    hit := valids(index) && nextTag === tag
+    hit match {
+      case Some(hit) => hit := valids(index) && nextTag === tag
+      case None =>
+    }
 
     //The writes take effect on the cycle after the request, need to switch to the buffer for 1 cycle.
     val justAllocated = RegNext(allocateCond)
