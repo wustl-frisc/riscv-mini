@@ -70,18 +70,29 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val mainMem = IO(new NastiBundle(nasti))
 
   // local parameters
-  private val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti)
+  protected val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti)
 
   //this section is for things needed by the frontend and the backend
   //split the address up into the parts we need
   private val nextAddress = Wire(chiselTypeOf(cpu.req.bits.addr))
-  private val address = Reg(chiselTypeOf(nextAddress))
+  protected val address = Reg(chiselTypeOf(nextAddress))
   private val tag = address(xlen - 1, p.indexLen + p.offsetLen)
   private val offset = address(p.offsetLen - 1, p.byteOffsetBits)
   private val index = if (p.nSets == 1) 0.U else address(p.indexLen + p.offsetLen - 1, p.offsetLen)
 
   //create a buffer for reads from main memory, also store the tag
-  private val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
+  protected val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
+
+  //set up phases used in every cache
+  protected val front = new Frontend(p, cpu)
+  protected val back = new Backend(p, mainMem, address)
+
+  //hit can be several different things depending on the feature set
+  protected val hit = Wire(Bool())
+  hit := false.B
+
+  protected val readDone = Wire(Bool())
+  readDone := false.B
 
   //get the next address from the datapath
   nextAddress := cpu.req.bits.addr
@@ -92,45 +103,16 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     address := nextAddress
   }
 
-  //hit can be several different things depending on the feature set
-  private val hit = Wire(Bool())
-  hit := false.B
-
-  private val readDone = Wire(Bool())
-  readDone := false.B
-
   //we have to do a little extra here due to no middle
   def cache0() = {
-    val fsmHandle = ChiselFSMBuilder(ReadFSM())
-    val front = new Frontend(fsmHandle, p, cpu)
-    val back = new Backend(fsmHandle, p, mainMem, address)
-
-    //simple bookkeeping
-    val bufferTag = Reg(UInt(p.tlen.W))
-    val v = RegInit(false.B)
-    hit := tag === bufferTag && v
-
-    // Take the cache line and split it into its words, get the word we want
-    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
-    val reqData = cacheLine(offset)
+    implicit val fsmHandle = ChiselFSMBuilder(ReadFSM())
 
     front.read(hit)
 
+    val v = bufferBookkeeping()
+
     readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
     back.writeStub()
-
-    //update our simple bookkeeping
-    when(mainMem.r.fire) {
-      bufferTag := tag
-    }
-
-    //have to set this to true to keep the processor executing
-    when(fsmHandle("sRefill")) {
-      v := true.B
-    }
-
-    //give the CPU the data when it's ready
-    cpu.resp.bits.data := reqData
 
     this
   }
@@ -138,50 +120,26 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   def cache1() = {
     val writeNFA =
       Weaver[NFA](List(new AckIdle), ReadFSM() + WriteFSM(), (before: NFA, after: NFA) => before.isEqual(after))
-    val fsmHandle = ChiselFSMBuilder(writeNFA)
-    val front = new Frontend(fsmHandle, p, cpu)
-    val back = new Backend(fsmHandle, p, mainMem, address)
-
-    //simple bookkeeping
-    val bufferTag = Reg(UInt(p.tlen.W))
-    val v = RegInit(false.B)
-    hit := tag === bufferTag && v
-
-    // Take the cache line and split it into its words, get the word we want
-    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
-    val reqData = cacheLine(offset)
+    implicit val fsmHandle = ChiselFSMBuilder(writeNFA)
 
     front.read(hit)
     val (data, mask) = front.write(offset)
 
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
-
-    //update our simple bookkeeping
-    when(mainMem.r.fire) {
-      bufferTag := tag
-    }
-
-    //have to set this to true to keep the processor executing
-    when(fsmHandle("sRefill")) {
-      v := true.B
-    }
+    val v = bufferBookkeeping()
 
     when(fsmHandle("sWriteWait")) {
       v := false.B
     }
 
-    //give the CPU the data when it's ready
-    cpu.resp.bits.data := reqData
+    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
+    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
 
     this
   }
 
   def readOnly() = {
-    val fsmHandle = ChiselFSMBuilder(ReadFSM())
-    val front = new Frontend(fsmHandle, p, cpu)
+    implicit val fsmHandle = ChiselFSMBuilder(ReadFSM())
     val middle = new Middleend(fsmHandle, p, address, tag, index)
-    val back = new Backend(fsmHandle, p, mainMem, address)
 
     front.read(hit)
 
@@ -197,10 +155,8 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   def writeBypass() = {
     val writeNFA =
       Weaver[NFA](List(new AckIdle), ReadFSM() + WriteFSM(), (before: NFA, after: NFA) => before.isEqual(after))
-    val fsmHandle = ChiselFSMBuilder(writeNFA)
-    val front = new Frontend(fsmHandle, p, cpu)
+    implicit val fsmHandle = ChiselFSMBuilder(writeNFA)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
-    val back = new Backend(fsmHandle, p, mainMem, address)
 
     front.read(hit)
     val (data, mask) = front.write(offset)
@@ -227,10 +183,8 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   def writeThrough() = {
     val writeNFA =
       Weaver[NFA](List(new AckIdle), ReadFSM() + WriteFSM(), (before: NFA, after: NFA) => before.isEqual(after))
-    val fsmHandle = ChiselFSMBuilder(writeNFA)
-    val front = new Frontend(fsmHandle, p, cpu)
+    implicit val fsmHandle = ChiselFSMBuilder(writeNFA)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
-    val back = new Backend(fsmHandle, p, mainMem, address)
 
     front.read(hit)
     val (data, mask) = front.write(offset)
@@ -253,10 +207,8 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
         (before: NFA, after: NFA) => before.isEqual(after)
       ))
 
-    val fsmHandle = ChiselFSMBuilder(writeBackNFA)
-    val front = new Frontend(fsmHandle, p, cpu)
+    implicit val fsmHandle = ChiselFSMBuilder(writeBackNFA)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
-    val back = new Backend(fsmHandle, p, mainMem, address)
 
     val readJustDone = RegNext(readDone)
     val dirty = RegInit(0.U(p.nSets.W))
@@ -302,11 +254,9 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
         (before: NFA, after: NFA) => before.isEqual(after)
       ))
 
-    val fsmHandle = ChiselFSMBuilder(writeBackNFA)
-    val front = new Frontend(fsmHandle, p, cpu)
+    implicit val fsmHandle = ChiselFSMBuilder(writeBackNFA)
     val middle = new Middleend(fsmHandle, p, address, tag, index)
     val dusty = new Middleend(fsmHandle, p, address, tag, index)
-    val back = new Backend(fsmHandle, p, mainMem, address)
 
     val readJustDone = RegNext(readDone)
     val dirty = RegInit(0.U(p.nSets.W))
@@ -349,6 +299,32 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     fsmHandle("cleanMiss") := !localWrite && !isDirty
 
     this
+  }
+
+  protected def bufferBookkeeping()(implicit fsmHandle: ChiselFSMHandle) = {
+    //simple bookkeeping
+    val bufferTag = Reg(UInt(p.tlen.W))
+    val v = RegInit(false.B)
+    hit := tag === bufferTag && v
+
+    // Take the cache line and split it into its words, get the word we want
+    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
+    val reqData = cacheLine(offset)
+
+    //update our simple bookkeeping
+    when(mainMem.r.fire) {
+      bufferTag := tag
+    }
+
+    //have to set this to true to keep the processor executing
+    when(fsmHandle("sRefill")) {
+      v := true.B
+    }
+
+    //give the CPU the data when it's ready
+    cpu.resp.bits.data := reqData
+
+    v
   }
 
 }
