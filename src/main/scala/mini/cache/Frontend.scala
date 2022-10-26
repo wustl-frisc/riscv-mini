@@ -5,8 +5,8 @@ import chisel3._
 import chisel3.util._
 import foam._
 
-class Frontend(p: CacheParams, io: CacheIO) {
-  def read(hit: Bool)(implicit fsmHandle: ChiselFSMHandle) = {
+class Frontend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: CacheIO) {
+  def read(hit: Bool) = {
     when(fsmHandle("sIdle")) {
       io.resp.valid := true.B
     }
@@ -22,7 +22,7 @@ class Frontend(p: CacheParams, io: CacheIO) {
     fsmHandle("readFinish") := !io.req.valid && hit
   }
 
-  def write(offset: UInt, readDone: Bool = false.B)(implicit fsmHandle: ChiselFSMHandle) = {
+  def write(offset: UInt, readDone: Bool = false.B) = {
     val fromCPUdata = Reg(chiselTypeOf(io.req.bits.data))
     val fromCPUmask = Reg(chiselTypeOf(io.req.bits.data))
 

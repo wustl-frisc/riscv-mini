@@ -6,7 +6,7 @@ import chisel3.util._
 import junctions._
 import foam._
 
-class Backend(p: CacheParams, io: NastiBundle, address: UInt) {
+class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, address: UInt) {
   //read address
   io.ar.valid := false.B
   //read data
@@ -24,8 +24,6 @@ class Backend(p: CacheParams, io: NastiBundle, address: UInt) {
     hit:     Bool,
     dirty:   Bool = false.B,
     isRead:  Bool = true.B
-  )(
-    implicit fsmHandle: ChiselFSMHandle
   ) = {
     require(p.dataBeats > 0)
     val (read_count, read_wrap_out) = Counter(io.r.fire, p.dataBeats)
@@ -84,8 +82,6 @@ class Backend(p: CacheParams, io: NastiBundle, address: UInt) {
     offset:     UInt,
     localWrite: Bool,
     dirty:      Bool = true.B
-  )(
-    implicit fsmHandle: ChiselFSMHandle
   ) = {
     require(p.dataBeats > 0)
     val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
