@@ -74,22 +74,24 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   //this section is for things needed by the frontend and the backend
   //split the address up into the parts we need
-  private val nextAddress = Wire(chiselTypeOf(cpu.req.bits.addr))
+  protected val nextAddress = Wire(chiselTypeOf(cpu.req.bits.addr))
   protected val address = Reg(chiselTypeOf(nextAddress))
-  private val tag = address(xlen - 1, p.indexLen + p.offsetLen)
+  protected val tag = address(xlen - 1, p.indexLen + p.offsetLen)
   protected val offset = address(p.offsetLen - 1, p.byteOffsetBits)
-  private val index = if (p.nSets == 1) 0.U else address(p.indexLen + p.offsetLen - 1, p.offsetLen)
+  protected val index = if (p.nSets == 1) 0.U else address(p.indexLen + p.offsetLen - 1, p.offsetLen)
 
   //create a buffer for reads from main memory, also store the tag
   protected val buffer = Reg(Vec(p.dataBeats, UInt(nasti.dataBits.W)))
-
-  //build the NFA for the cache
-  protected lazy val cacheNFA = Weaver[NFA](List(), ReadFSM(), (before: NFA, after: NFA) => before.isEqual(after))
-  implicit lazy val fsmHandle = ChiselFSMBuilder(cacheNFA)
+  //we will always have at least this
+  val valids = RegInit(0.U(p.nSets.W))
 
   //set up phases used in every cache
   protected val front = new Frontend(fsmHandle, p, cpu)
   protected val back = new Backend(fsmHandle, p, mainMem, address)
+
+  //build the NFA for the cache
+  protected lazy val cacheNFA = Weaver[NFA](List(), ReadFSM(), (before: NFA, after: NFA) => before.isEqual(after))
+  protected lazy val fsmHandle = ChiselFSMBuilder(cacheNFA)
 
   //hit can be several different things depending on the feature set
   protected val hit = Wire(Bool())
@@ -109,96 +111,27 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   front.read(hit)
 
-  //we have to do a little extra here due to no middle
-  def cache0() = {
-
-    val v = bufferBookkeeping()
-
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.writeStub()
-
-    this
-  }
-
-  def cache1() = {
-    val (data, mask) = front.write(offset)
-
-    val v = bufferBookkeeping()
-
-    when(fsmHandle("sWriteWait")) {
-      v := false.B
-    }
-
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
-
-    this
-  }
-
-  def readOnly() = {
-    val middle = new Middleend(fsmHandle, p, address, tag, index)
-
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
-    middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
-
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.writeStub()
-
-    this
-  }
-
-  def writeBypass() = {
-    val middle = new Middleend(fsmHandle, p, address, tag, index)
-
-    val (data, mask) = front.write(offset)
-
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
-    middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
-
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write(
-      (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
-      data,
-      Some(mask),
-      offset,
-      cpu.abort
-    ) //only write when we're not doing an abort
-
-    when(fsmHandle("sWriteWait")) {
-      valids := valids.bitSet(index, false.B)
-    }
-
-    this
-  }
-
-  def writeThrough() = {
-    val middle = new Middleend(fsmHandle, p, address, tag, index)
-
-    val (data, mask) = front.write(offset)
-
-    val (valids, _, _) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
-    middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
-    middle.update(data, mask, fsmHandle("sWriteCache") && hit && !cpu.abort)
-
-    readDone := back.read((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, buffer, hit)
-    back.write((address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt, data, Some(mask), offset, cpu.abort)
-
-    this
-  }
+  //traits for endpoints
+  //cahce 0: with HasBufferBookeeping with HasCleanRead with HasWriteStub
+  //cache 1: with HasWriteNFA with HasBufferBookeeping with HasInvalidOnWrite with HasCleanRead with HasSimpleWrite
+  //readOnly: with HasMiddleAllocate with HasCleanRead with HasWriteStub
+  //writeBypass: with HasWriteNFA with HasMiddleAllocate with HasInvalidOnWrite with HasCleanRead with HasSimpleWrite
+  //writeThrough: with HasWriteNFA with HasMiddleAllocate with HasMiddleUpdate with HasCleanRead with HasSimpleWrite
 
   def writeBack() = {
-    val middle = new Middleend(fsmHandle, p, address, tag, index)
+    //writeFSM and AckRead and WriteBackMechanics
 
     val readJustDone = RegNext(readDone)
-    val dirty = RegInit(0.U(p.nSets.W))
-
     val (data, mask) = front.write(offset, hit || readJustDone)
 
-    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
+    val middle = new Middleend(fsmHandle, p, address, tag, index, valids) //middleAllocate
+    val (oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
+
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
 
+    val dirty = RegInit(0.U(p.nSets.W))
     val localWrite = hit || readJustDone || cpu.abort
     readDone := back.read(
       (address(p.xlen - 1, p.offsetLen) << p.offsetLen.U).asUInt,
@@ -225,8 +158,8 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   }
 
   def dustyCache() = {
-    val middle = new Middleend(fsmHandle, p, address, tag, index)
-    val dusty = new Middleend(fsmHandle, p, address, tag, index)
+    val middle = new Middleend(fsmHandle, p, address, tag, index, valids)
+    val dusty = new Middleend(fsmHandle, p, address, tag, index, valids)
 
     val readJustDone = RegNext(readDone)
     val dirty = RegInit(0.U(p.nSets.W))
@@ -234,13 +167,13 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     val (data, mask) = front.write(offset, hit || readJustDone)
 
     //local memory
-    val (valids, oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
+    val (oldTag, readData) = middle.read(buffer, nextAddress, offset, Some(hit), Some(cpu))
     middle.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
     val updateCond = fsmHandle("sWriteCache") && (hit || readJustDone) && !cpu.abort
     middle.update(data, mask, updateCond)
 
     //image of backing store
-    val (_, _, dustyData) = dusty.read(buffer, nextAddress, offset)
+    val (_, dustyData) = dusty.read(buffer, nextAddress, offset)
     dusty.allocate(Cat(mainMem.r.bits.data, Cat(buffer.init.reverse)), readDone)
 
     val isDirty = dirty(index) && (dustyData =/= readData)
@@ -268,32 +201,6 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
     fsmHandle("cleanMiss") := !localWrite && !isDirty
 
     this
-  }
-
-  protected def bufferBookkeeping()(implicit fsmHandle: ChiselFSMHandle) = {
-    //simple bookkeeping
-    val bufferTag = Reg(UInt(p.tlen.W))
-    val v = RegInit(false.B)
-    hit := tag === bufferTag && v
-
-    // Take the cache line and split it into its words, get the word we want
-    val cacheLine = VecInit.tabulate(p.nWords)(i => buffer.asUInt((i + 1) * xlen - 1, i * xlen))
-    val reqData = cacheLine(offset)
-
-    //update our simple bookkeeping
-    when(mainMem.r.fire) {
-      bufferTag := tag
-    }
-
-    //have to set this to true to keep the processor executing
-    when(fsmHandle("sRefill")) {
-      v := true.B
-    }
-
-    //give the CPU the data when it's ready
-    cpu.resp.bits.data := reqData
-
-    v
   }
 
 }

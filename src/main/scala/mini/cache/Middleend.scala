@@ -6,9 +6,7 @@ import chisel3.util._
 import junctions._
 import foam._
 
-class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: UInt, index: UInt) {
-  //set up the bookkeeping
-  private val valids = RegInit(0.U(p.nSets.W))
+class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: UInt, index: UInt, valids: UInt) {
   //just store the tags
   private val tags = SyncReadMem(p.nSets, UInt(p.tlen.W))
   //for each set, we have a line that is nWords * wBytes long
@@ -54,7 +52,7 @@ class Middleend(fsmHandle: ChiselFSMHandle, p: CacheParams, address: UInt, tag: 
       case None => 
     }
 
-    (valids, nextTag, readData)
+    (nextTag, readData)
   }
 
   def allocate(cacheLine: UInt, allocateCond: Bool) = {
