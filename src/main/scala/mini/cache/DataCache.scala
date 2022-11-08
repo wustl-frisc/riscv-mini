@@ -1,6 +1,6 @@
 // See LICENSE for license details.
 
-package mini
+/*package mini
 package cache
 
 import chisel3._
@@ -242,3 +242,4 @@ class DataCache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: 
   fsmHandle("refillFinish") := read_wrap_out && !cpu_mask.orR
   fsmHandle("doWrite") := read_wrap_out && cpu_mask.orR
 }
+ */

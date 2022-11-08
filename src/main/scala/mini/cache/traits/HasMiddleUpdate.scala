@@ -7,5 +7,7 @@ import foam.aspects._
 
 //is this best done as a trait?
 trait HasMiddleUpdate extends HasMiddleAllocate with HasSimpleWrite {
-  middle.update(data, mask, fsmHandle("sWriteCache") && hit && !cpu.abort)
+  val updateCond = fsmHandle("sWriteCache") && hit && !cpu.abort
+  
+  middle.update(data, mask, updateCond)
 }

@@ -7,6 +7,8 @@ import chisel3.experimental.ChiselEnum
 import chisel3.util._
 import junctions._
 import cache._
+import foam._
+import foam.aspects._
 
 class MemArbiterIO(params: NastiBundleParameters) extends Bundle {
   val icache = Flipped(new NastiBundle(params))
@@ -108,11 +110,12 @@ class Tile(val coreParams: CoreConfig, val nastiParams: NastiBundleParameters, v
     extends Module {
   val io = IO(new TileIO(coreParams.xlen, nastiParams))
   val core = Module(new Core(coreParams))
-  
-  val icache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).readOnly())
 
-  
-  val dcache = Module((new Cache(cacheParams, nastiParams, coreParams.xlen)).writeBack())
+  val usedParams = cacheParams
+
+  val icache = Module(new InstructionCache(usedParams, nastiParams, coreParams.xlen))
+
+  val dcache = Module(new DataCache(usedParams, nastiParams, coreParams.xlen))
 
   val arb = Module(new MemArbiter(nastiParams))
 

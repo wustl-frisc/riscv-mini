@@ -22,8 +22,8 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     address: UInt,
     buffer:  Vec[UInt],
     hit:     Bool,
-    dirty:   Bool = false.B,
-    isRead:  Bool = true.B
+    dirty:   Bool,
+    isRead:  Bool
   ) = {
     require(p.dataBeats > 0)
     val (read_count, read_wrap_out) = Counter(io.r.fire, p.dataBeats)
@@ -81,7 +81,7 @@ class Backend(fsmHandle: ChiselFSMHandle, p: CacheParams, io: NastiBundle, addre
     mask:       Option[Vec[UInt]],
     offset:     UInt,
     localWrite: Bool,
-    dirty:      Bool = true.B
+    dirty:      Bool
   ) = {
     require(p.dataBeats > 0)
     val (write_count, write_wrap_out) = Counter(io.w.fire, p.dataBeats)
