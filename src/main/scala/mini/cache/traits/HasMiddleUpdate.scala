@@ -2,6 +2,7 @@ package mini
 package cache
 
 import chisel3._
+import chisel3.util._
 import foam._
 import foam.aspects._
 
