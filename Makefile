@@ -32,14 +32,24 @@ $(base_dir)/VTile: $(gen_dir)/Tile.v $(src_dir)/cc/top.cc $(src_dir)/cc/mm.cc $(
 verilator: $(base_dir)/VTile
 
 # isa tests + benchmarks with verilator
-test_hex_files = $(wildcard $(base_dir)/tests/*.hex)
-test_out_files = $(foreach f,$(test_hex_files),$(patsubst %.hex,%.out,$(out_dir)/$(notdir $f)))
+#test_hex_files = $(wildcard $(base_dir)/tests/*.hex)
+#test_out_files = $(foreach f,$(test_hex_files),$(patsubst %.hex,%.out,$(out_dir)/$(notdir $f)))
 
-$(test_out_files): $(out_dir)/%.out: $(base_dir)/VTile $(base_dir)/tests/%.hex
+#$(test_out_files): $(out_dir)/%.out: $(base_dir)/VTile $(base_dir)/tests/%.hex
+#	mkdir -p $(out_dir)
+#	$^ $(patsubst %.out,%.vcd,$@) 2> $@
+
+#run-tests: $(test_out_files)
+
+
+large_test_hex_files = $(wildcard $(base_dir)/tests/*.riscv-large.hex)
+large_test_out_files = $(foreach f,$(large_test_hex_files),$(patsubst %.hex,%.out,$(out_dir)/$(notdir $f)))
+
+$(large_test_out_files): $(out_dir)/%.out: $(base_dir)/VTile $(base_dir)/tests/%.hex
 	mkdir -p $(out_dir)
 	$^ $(patsubst %.out,%.vcd,$@) 2> $@
 
-run-tests: $(test_out_files)
+run-large-tests: $(large_test_out_files)
 
 # run custom benchamrk
 custom_bmark_hex ?= $(base_dir)/custom-bmark/main.hex

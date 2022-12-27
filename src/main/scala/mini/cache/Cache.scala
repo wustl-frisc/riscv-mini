@@ -131,12 +131,4 @@ class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   
   val dirtyWrite = Wire(Bool())
   dirtyWrite := true.B
-
-  //traits for endpoints
-  //cahce 0:  with HasCleanRead with HasWriteStub with HasBufferBookeeping 
-  //readOnly: with HasCleanRead with HasWriteStub with HasMiddleAllocate 
-
-  //cache 1:      with HasWriteNFA with HasCleanRead with HasSimpleWrite with HasBufferBookeeping with HasInvalidOnWrite
-  //writeBypass:  with HasWriteNFA with HasCleanRead with HasSimpleWrite with HasMiddleAllocate with HasInvalidOnWrite
-  //writeThrough: with HasWriteNFA with HasCleanRead with HasSimpleWrite with HasMiddleAllocate with HasMiddleUpdate
 }

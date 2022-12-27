@@ -117,11 +117,11 @@ int main(int argc, char** argv) {
 
   if (main_time >= timeout) {
     cerr << "Simulation terminated by timeout at time " << main_time
-         << " (cycle " << main_time / 10 << ")"<< endl;
+         << " (cycle " << main_time / 2 << ")"<< endl;
     return EXIT_FAILURE;
   } else {
     cerr << "Simulation completed at time " << main_time <<
-           " (cycle " << main_time / 10 << ")"<< endl;
+           " (cycle " << main_time / 2 << ")"<< endl;
     if (retcode) {
       cerr << "TOHOST = " << retcode << endl;
     }
