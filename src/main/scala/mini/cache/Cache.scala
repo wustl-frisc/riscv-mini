@@ -64,20 +64,15 @@ class CacheParams(val nSets: Int, val blockBytes: Int, val xlen: Int, val nasti:
   println("\tdata beats: " + dataBeats)
 }
 
-class InstructionCache(c: CacheConfig, nasti: NastiBundleParameters, xlen: Int) extends Cache(c, nasti, xlen)
-  with HasCleanRead with HasWriteStub
+class ICache(nastiParams: NastiBundleParameters, xlen: Int) extends Cache(nastiParams, xlen) with HasCleanRead with HasWriteStub
+class DCache(nastiParams: NastiBundleParameters, xlen: Int) extends Cache(nastiParams, xlen) with HasWriteNFA with HasCleanRead with HasSimpleWrite
 
-class DataCache(c: CacheConfig, nasti: NastiBundleParameters, xlen: Int) extends Cache(c, nasti, xlen) with HasWriteNFA with HasCleanRead with HasSimpleWrite
-
-class Cache(val c: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
+class Cache(val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   //outward facing IO
   val cpu = IO(new CacheIO(xlen, xlen))
   val mainMem = IO(new NastiBundle(nasti))
-
-  // local parameters
-  protected val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti)
-
-  //build the NFA for the cache
+  lazy val c = CacheConfig(nWays = 1, nSets = 1, blockBytes = 1)
+  protected lazy val p = new CacheParams(c.nSets, c.blockBytes, xlen, nasti)
   protected lazy val cacheNFA = Weaver[NFA](List(), ReadFSM(), (before: NFA, after: NFA) => before.isEqual(after))
   protected lazy val fsmHandle = ChiselFSMBuilder(cacheNFA)
 

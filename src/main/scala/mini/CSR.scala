@@ -193,37 +193,39 @@ class CSR(val xlen: Int) extends Module {
     mfromhost := io.host.fromhost.bits
   }
 
-  val csrFile = Seq(
-    BitPat(CSR.cycle) -> cycle,
-    BitPat(CSR.time) -> time,
-    BitPat(CSR.instret) -> instret,
-    BitPat(CSR.cycleh) -> cycleh,
-    BitPat(CSR.timeh) -> timeh,
-    BitPat(CSR.instreth) -> instreth,
-    BitPat(CSR.cyclew) -> cycle,
-    BitPat(CSR.timew) -> time,
-    BitPat(CSR.instretw) -> instret,
-    BitPat(CSR.cyclehw) -> cycleh,
-    BitPat(CSR.timehw) -> timeh,
-    BitPat(CSR.instrethw) -> instreth,
-    BitPat(CSR.mcpuid) -> mcpuid,
-    BitPat(CSR.mimpid) -> mimpid,
-    BitPat(CSR.mhartid) -> mhartid,
-    BitPat(CSR.mtvec) -> mtvec,
-    BitPat(CSR.mtdeleg) -> mtdeleg,
-    BitPat(CSR.mie) -> mie,
-    BitPat(CSR.mtimecmp) -> mtimecmp,
-    BitPat(CSR.mtime) -> time,
-    BitPat(CSR.mtimeh) -> timeh,
-    BitPat(CSR.mscratch) -> mscratch,
-    BitPat(CSR.mepc) -> mepc,
-    BitPat(CSR.mcause) -> mcause,
-    BitPat(CSR.mbadaddr) -> mbadaddr,
-    BitPat(CSR.mip) -> mip,
-    BitPat(CSR.mtohost) -> mtohost,
-    BitPat(CSR.mfromhost) -> mfromhost,
-    BitPat(CSR.mstatus) -> mstatus
-  )
+  val csrFile = generateCSRMap()
+
+  def generateCSRMap() = Seq(
+      BitPat(CSR.cycle) -> cycle,
+      BitPat(CSR.time) -> time,
+      BitPat(CSR.instret) -> instret,
+      BitPat(CSR.cycleh) -> cycleh,
+      BitPat(CSR.timeh) -> timeh,
+      BitPat(CSR.instreth) -> instreth,
+      BitPat(CSR.cyclew) -> cycle,
+      BitPat(CSR.timew) -> time,
+      BitPat(CSR.instretw) -> instret,
+      BitPat(CSR.cyclehw) -> cycleh,
+      BitPat(CSR.timehw) -> timeh,
+      BitPat(CSR.instrethw) -> instreth,
+      BitPat(CSR.mcpuid) -> mcpuid,
+      BitPat(CSR.mimpid) -> mimpid,
+      BitPat(CSR.mhartid) -> mhartid,
+      BitPat(CSR.mtvec) -> mtvec,
+      BitPat(CSR.mtdeleg) -> mtdeleg,
+      BitPat(CSR.mie) -> mie,
+      BitPat(CSR.mtimecmp) -> mtimecmp,
+      BitPat(CSR.mtime) -> time,
+      BitPat(CSR.mtimeh) -> timeh,
+      BitPat(CSR.mscratch) -> mscratch,
+      BitPat(CSR.mepc) -> mepc,
+      BitPat(CSR.mcause) -> mcause,
+      BitPat(CSR.mbadaddr) -> mbadaddr,
+      BitPat(CSR.mip) -> mip,
+      BitPat(CSR.mtohost) -> mtohost,
+      BitPat(CSR.mfromhost) -> mfromhost,
+      BitPat(CSR.mstatus) -> mstatus
+    )
 
   io.out := Lookup(csr_addr, 0.U, csrFile).asUInt
 
@@ -323,6 +325,12 @@ class CSR(val xlen: Int) extends Module {
         .elsewhen(csr_addr === CSR.cyclehw) { cycleh := wdata }
         .elsewhen(csr_addr === CSR.timehw) { timeh := wdata }
         .elsewhen(csr_addr === CSR.instrethw) { instreth := wdata }
+    }
+
+    counterBlock()
+
+    def counterBlock() = {
+
     }
   }
 }
