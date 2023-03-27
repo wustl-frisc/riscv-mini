@@ -9,6 +9,9 @@ import chisel3.util._
 import junctions._
 import foam._
 import foam.aspects._
+import mini.counter.EventSet
+
+object CacheEvents extends EventSet(1.U)
 
 class CacheReq(addrWidth: Int, dataWidth: Int) extends Bundle {
   val addr = UInt(addrWidth.W)
