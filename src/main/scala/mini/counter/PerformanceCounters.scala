@@ -33,7 +33,6 @@ object PerformanceCounters {
     Array.fill(numCounters) {
       val configReg = RegInit(0.U(64.W))
       val counter = new mini.counter.Counter() with OnRisingEdge
-      printf("Counter %d\n", counter.getCount)
 
       //connect to the correct event set
       val eventVec = signalArray(configReg(63, 32)) //use the upper 32 bits for event set

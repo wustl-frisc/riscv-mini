@@ -11,9 +11,4 @@ class SimpleCounter extends Aspect {
       mini.cache.CacheEvents(event._2, event._1, hit)
     }
   }
-
-  Before(("CSR", "counterBlock"), "Any") {() => {
-    import mini.counter._
-    val perfCounters = PerformanceCounters(Set[EventSet](mini.cache.CacheEvents), 4)
-  }}
 }

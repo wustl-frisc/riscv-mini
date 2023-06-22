@@ -22,6 +22,8 @@ class DatapathIO(xlen: Int) extends Bundle {
 class FetchExecutePipelineRegister(xlen: Int) extends Bundle {
   val inst = chiselTypeOf(Instructions.NOP)
   val pc = UInt(xlen.W)
+  val pc_4 = UInt(xlen.W)
+  val tg = UInt(xlen.W)
 }
 
 class ExecuteWritebackPipelineRegister(xlen: Int) extends Bundle {
@@ -48,7 +50,9 @@ class Datapath(val conf: CoreConfig) extends Module {
   val fe_reg = RegInit(
     (new FetchExecutePipelineRegister(conf.xlen)).Lit(
       _.inst -> Instructions.NOP,
-      _.pc -> 0.U
+      _.pc -> 0.U,
+      _.pc_4 -> 0.U,
+      _.tg -> 0.U,
     )
   )
 
@@ -78,19 +82,24 @@ class Datapath(val conf: CoreConfig) extends Module {
   val started = RegNext(reset.asBool)
   val stall = !io.icache.resp.valid || !io.dcache.resp.valid
   val pc = RegInit(Const.PC_START.U(conf.xlen.W) - 4.U(conf.xlen.W))
+  val missPredict = Wire(Bool())
+  val tg = Wire(UInt(conf.xlen.W))
+  val correction = Wire(UInt(conf.xlen.W))
   // Next Program Counter
+
   val next_pc = MuxCase(
-    pc + 4.U,
+    tg,
     IndexedSeq(
       stall -> pc,
       csr.io.expt -> csr.io.evec,
       (io.ctrl.pc_sel === PC_EPC) -> csr.io.epc,
-      ((io.ctrl.pc_sel === PC_ALU) || (brCond.io.taken)) -> (alu.io.sum >> 1.U << 1.U),
+      (io.ctrl.pc_sel === PC_ALU) -> (alu.io.sum >> 1.U << 1.U),
+      missPredict -> correction,
       (io.ctrl.pc_sel === PC_0) -> pc
     )
   )
   val inst =
-    Mux(started || io.ctrl.inst_kill || brCond.io.taken || csr.io.expt, Instructions.NOP, io.icache.resp.bits.data)
+    Mux(started || io.ctrl.inst_kill || missPredict || csr.io.expt, Instructions.NOP, io.icache.resp.bits.data)
   pc := next_pc
   io.icache.req.bits.addr := next_pc
   io.icache.req.bits.data := 0.U
@@ -98,10 +107,30 @@ class Datapath(val conf: CoreConfig) extends Module {
   io.icache.req.valid := !stall
   io.icache.abort := false.B
 
+  branchPredictor(pc, tg)
+
+  def branchPredictor(currPC: UInt, predPC: UInt) = {
+    val cachedPC = RegInit(0.U(conf.xlen.W))
+    val des = RegInit(0.U(conf.xlen.W))
+
+    when(currPC === cachedPC && !missPredict) {
+      predPC := des
+    }.otherwise {
+      predPC := pc + 4.U
+    }
+
+    when(missPredict) {
+      cachedPC := fe_reg.pc
+      des := correction
+    }
+  }
+
   // Pipelining
   when(!stall) {
     fe_reg.pc := pc
+    fe_reg.pc_4 := pc + 4.U
     fe_reg.inst := inst
+    fe_reg.tg := tg
   }
 
   /** **** Execute ****
@@ -135,6 +164,8 @@ class Datapath(val conf: CoreConfig) extends Module {
   brCond.io.rs1 := rs1
   brCond.io.rs2 := rs2
   brCond.io.br_type := io.ctrl.br_type
+  correction := Mux(brCond.io.taken, (alu.io.sum >> 1.U << 1.U), fe_reg.pc_4)
+  missPredict := (fe_reg.tg =/= correction)
 
   // D$ access
   val daddr = Mux(stall, ew_reg.alu, alu.io.sum) >> 2.U << 2.U

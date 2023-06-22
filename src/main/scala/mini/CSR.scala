@@ -329,6 +329,10 @@ class CSR(val xlen: Int) extends Module {
 
     counterBlock()
 
+    when(io.expt) {
+      printf("mcause %x\n", mcause)
+    }
+
     def counterBlock() = {
 
     }

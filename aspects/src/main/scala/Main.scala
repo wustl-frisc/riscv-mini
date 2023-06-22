@@ -8,7 +8,9 @@ object Cache0Cache1 extends App {
     new Passthrough(("ICache", "*"))
     new Passthrough(("DCache", "*"))
     new CacheInvalidOnWrite
-    new SimpleCounter
+    //new SimpleCounter
+    //new PlaceCounters("Tile", "hookUp")
+    //new PlaceCounters("CSR", "counterBlock")
     //new AddCSR
   }
 }
